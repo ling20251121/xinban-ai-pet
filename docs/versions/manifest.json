@@ -31,7 +31,7 @@
     {
       "version": "v3.1.0",
       "type": "static-v3-dual-surface-demo",
-      "commit": null,
+      "commit": "ffc55d42b2e4a6bdb549235d4ef21fc79b1b92c1",
       "fixedPath": "./v3.1.0/",
       "database": null,
       "networkRequests": false,
