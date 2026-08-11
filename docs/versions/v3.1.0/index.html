@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="description" content="心伴 AI-Pet v3.1.0 学生端与教师端静态双端演示；不上传、不存储、不连接模型 API。">
+  <meta name="color-scheme" content="light">
+  <title>学生端静态演示｜心伴 AI-Pet v3.1.0</title>
+  <style>
+    :root{
+      --ink:#25263f;
+      --muted:#676a82;
+      --violet:#7062dc;
+      --violet-deep:#564ac0;
+      --violet-soft:#efecff;
+      --blue:#4c8dcc;
+      --blue-soft:#edf7ff;
+      --green:#328665;
+      --green-soft:#eaf8f2;
+      --coral:#da6d5b;
+      --coral-soft:#fff0ec;
+      --gold:#d69a32;
+      --gold-soft:#fff6e4;
+      --line:#e3dfef;
+      --paper:#fff;
+      --canvas:#f8f7fc;
+      --shadow:0 22px 58px rgba(58,48,111,.11);
+      --mood:#7062dc;
+      --mood-soft:#efecff;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;
+      color:var(--ink);
+      background:
+        radial-gradient(circle at 7% 9%,rgba(112,98,220,.11),transparent 28rem),
+        radial-gradient(circle at 94% 34%,rgba(50,134,101,.08),transparent 26rem),
+        var(--canvas);
+      font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",system-ui,-apple-system,sans-serif;
+      line-height:1.65;
+    }
+    body[data-mood="happy"]{--mood:#d69a32;--mood-soft:#fff7e5}
+    body[data-mood="calm"]{--mood:#328665;--mood-soft:#eaf8f2}
+    body[data-mood="tense"]{--mood:#4c8dcc;--mood-soft:#edf7ff}
+    body[data-mood="sad"]{--mood:#707aa6;--mood-soft:#f0f2fb}
+    body[data-mood="upset"]{--mood:#da6d5b;--mood-soft:#fff0ec}
+    body[data-mood="unclear"]{--mood:#777887;--mood-soft:#f2f2f5}
+    [hidden]{display:none!important}
+    button,input,textarea{font:inherit}
+    button,a{-webkit-tap-highlight-color:transparent}
+    a{color:inherit}
+    button{color:inherit}
+    :focus-visible{outline:3px solid rgba(112,98,220,.5);outline-offset:3px}
+    .skip-link{
+      position:fixed;top:8px;left:12px;z-index:100;
+      padding:9px 14px;transform:translateY(-160%);
+      border-radius:10px;background:var(--ink);color:#fff;
+      font-weight:900;text-decoration:none;transition:transform .15s;
+    }
+    .skip-link:focus{transform:translateY(0)}
+    .demo-banner{
+      display:flex;gap:9px;align-items:flex-start;justify-content:center;
+      padding:11px max(18px,env(safe-area-inset-left));
+      background:#fff5df;border-bottom:1px solid #eed49d;
+      color:#755014;font-size:13px;line-height:1.5;text-align:center;
+    }
+    .demo-banner strong{flex:0 0 auto}
+    .site-header{
+      position:sticky;top:0;z-index:30;
+      display:grid;grid-template-columns:1fr auto auto;gap:16px;align-items:center;
+      min-height:76px;padding:10px max(24px,calc((100% - 1320px)/2));
+      border-bottom:1px solid rgba(227,223,239,.9);
+      background:rgba(248,247,252,.9);backdrop-filter:blur(18px);
+    }
+    .brand{display:inline-flex;gap:11px;align-items:center;text-decoration:none;width:max-content}
+    .brand-mark{
+      display:grid;width:43px;height:43px;place-items:center;
+      border-radius:15px 15px 15px 5px;
+      background:linear-gradient(145deg,#887bee,var(--violet-deep));
+      box-shadow:0 8px 22px rgba(86,74,192,.28);
+      color:#fff;font-size:18px;font-weight:900;
+    }
+    .brand-copy{display:grid;line-height:1.2}
+    .brand-copy strong{font-size:16px}
+    .brand-copy small{margin-top:3px;color:var(--muted);font-size:10px;letter-spacing:.08em}
+    .view-nav{display:flex;gap:5px;padding:4px;border-radius:15px;background:#ebe8f5}
+    .view-nav a{
+      display:inline-flex;align-items:center;justify-content:center;
+      min-height:44px;padding:8px 14px;border-radius:11px;
+      color:#5d5e73;font-size:13px;font-weight:800;text-decoration:none;
+    }
+    .view-nav a[aria-current="page"]{background:#fff;color:var(--violet-deep);box-shadow:0 4px 14px rgba(60,49,111,.1)}
+    .archive-link{
+      display:inline-flex;min-height:44px;align-items:center;padding:8px 12px;
+      border:1px solid var(--line);border-radius:12px;background:#fff;
+      color:var(--muted);font-size:12px;font-weight:800;text-decoration:none;
+    }
+    main{width:min(1320px,calc(100% - 40px));margin:0 auto;padding:38px 0 72px}
+    .view-heading:focus{outline:none}
+    .student-hero,.teacher-hero{
+      display:grid;grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);
+      gap:clamp(28px,6vw,80px);align-items:center;margin-bottom:26px;
+    }
+    .eyebrow{margin:0;color:var(--violet-deep);font-size:11px;font-weight:900;letter-spacing:.16em}
+    .hero-copy h1,.teacher-hero h1{
+      margin:14px 0 17px;font-family:"STKaiti","KaiTi","Songti SC",serif;
+      font-size:clamp(40px,5.7vw,68px);line-height:1.12;letter-spacing:-.04em;
+    }
+    .hero-copy h1 em,.teacher-hero h1 em{color:var(--violet-deep);font-style:normal}
+    .hero-copy>p:last-of-type,.teacher-copy>p:last-of-type{max-width:720px;margin:0;color:var(--muted);font-size:16px}
+    .hero-tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+    .hero-tags span,.boundary-chip,.fiction-badge{
+      display:inline-flex;min-height:32px;align-items:center;padding:5px 10px;
+      border-radius:999px;background:var(--violet-soft);
+      color:var(--violet-deep);font-size:11px;font-weight:900;
+    }
+    .pet-card{
+      position:relative;overflow:hidden;min-height:270px;padding:24px;
+      border:1px solid color-mix(in srgb,var(--mood) 30%,var(--line));
+      border-radius:30px;background:linear-gradient(155deg,var(--mood-soft),#fff 68%);
+      box-shadow:var(--shadow);text-align:center;
+      transition:border-color .2s,background .2s;
+    }
+    .demo-stamp{
+      position:absolute;top:18px;right:18px;padding:5px 9px;border-radius:999px;
+      background:#fff;color:var(--muted);font-size:9px;font-weight:900;letter-spacing:.1em;
+    }
+    .pet-halo{
+      position:absolute;inset:30px auto auto 50%;width:190px;height:190px;
+      transform:translateX(-50%);border-radius:50%;
+      background:radial-gradient(circle,var(--mood-soft) 0 54%,transparent 55%);
+    }
+    .pet-face{
+      position:relative;display:grid;width:156px;height:156px;place-items:center;
+      margin:18px auto 4px;border-radius:48px;background:#fff;
+      box-shadow:0 16px 34px rgba(67,55,124,.12);
+      font-size:76px;line-height:1;transform-origin:50% 80%;
+      animation:pet-arrive .35s ease-out both;
+    }
+    body[data-state="mood-selected"] .pet-face{animation:pet-ack .42s ease-out both}
+    body[data-state="saving"] .pet-face,body[data-state="responding"] .pet-face{animation:pet-think 1.35s ease-in-out infinite}
+    body[data-state="urgent"] .pet-face{animation:none}
+    .pet-status{
+      position:relative;display:inline-flex;gap:7px;align-items:center;
+      min-height:30px;padding:5px 10px;border:1px solid #d4ecdf;
+      border-radius:999px;background:#f5fcf9;color:#33745a;font-size:11px;font-weight:900;
+    }
+    .pet-status i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(50,134,101,.12)}
+    body[data-state="saving"] .pet-status i,body[data-state="responding"] .pet-status i{background:var(--mood);animation:pulse 1.1s ease-in-out infinite}
+    .pet-boundary{position:relative;margin:10px 0 0;color:var(--muted);font-size:12px}
+    .safety-strip{
+      display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:16px;align-items:center;
+      margin:0 0 24px;padding:18px 20px;border:1px solid #f0b6a6;
+      border-radius:22px;background:#fff5f1;
+    }
+    .safety-icon{
+      display:grid;width:42px;height:42px;place-items:center;border-radius:14px;
+      background:var(--coral);color:#fff;font-size:20px;font-weight:900;
+    }
+    .safety-strip h2{margin:0;font-size:16px}
+    .safety-strip p{margin:3px 0 0;color:#805346;font-size:12px}
+    .emergency-links{display:flex;flex-wrap:wrap;gap:8px}
+    .emergency-links a{
+      display:inline-flex;min-height:44px;align-items:center;justify-content:center;
+      padding:8px 12px;border-radius:12px;background:#963f31;color:#fff;
+      font-size:12px;font-weight:900;text-decoration:none;
+    }
+    .student-workspace{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+    .side-stack{display:grid;gap:18px;position:sticky;top:98px}
+    .panel{
+      padding:clamp(22px,3.5vw,38px);border:1px solid var(--line);
+      border-radius:28px;background:var(--paper);box-shadow:0 15px 44px rgba(59,50,108,.07);
+    }
+    .panel-heading{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+    .section-kicker{margin:0;color:var(--violet-deep);font-size:10px;font-weight:900;letter-spacing:.14em}
+    .panel-heading h2,.panel h2{margin:5px 0 0;font-size:clamp(21px,2.4vw,28px);line-height:1.3}
+    .step-badge{flex:0 0 auto;padding:6px 10px;border-radius:999px;background:var(--green-soft);color:var(--green);font-size:10px;font-weight:900}
+    fieldset{margin:0;padding:0;border:0}
+    legend{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)}
+    .mood-grid{display:grid;grid-template-columns:repeat(6,minmax(72px,1fr));gap:9px}
+    .mood-choice{
+      display:grid;min-height:92px;place-items:center;gap:7px;padding:10px 7px;
+      border:1px solid var(--line);border-radius:17px;background:#fbfaff;
+      cursor:pointer;transition:transform .16s,border-color .16s,box-shadow .16s;
+    }
+    .mood-choice:hover{transform:translateY(-2px)}
+    .mood-choice:has(input:checked){transform:translateY(-2px);border-color:var(--mood);box-shadow:0 0 0 3px color-mix(in srgb,var(--mood) 15%,transparent),0 10px 24px rgba(67,55,124,.1)}
+    .mood-choice:focus-within{outline:3px solid rgba(112,98,220,.45);outline-offset:3px}
+    .mood-choice input{position:absolute;width:1px;height:1px;opacity:0}
+    .mood-choice span{font-size:27px;line-height:1}
+    .mood-choice strong{font-size:12px}
+    .mood-feedback{
+      display:grid;grid-template-columns:auto 1fr;gap:5px 10px;margin:13px 0 0;
+      padding:12px 14px;border-left:4px solid var(--mood);border-radius:12px;
+      background:var(--mood-soft);color:#56586f;font-size:12px;
+      animation:rise .2s ease-out both;
+    }
+    .mood-feedback strong{color:var(--ink)}
+    .prompt-row{display:flex;flex-wrap:wrap;gap:7px;margin:15px 0}
+    .prompt-row button{
+      min-height:44px;padding:8px 12px;border:1px solid #ded9ea;border-radius:999px;
+      background:#fbfaff;color:#66657a;font-size:11px;cursor:pointer;
+    }
+    .prompt-row button:hover{border-color:var(--violet);color:var(--violet-deep)}
+    .field{display:grid;gap:8px;margin-top:16px}
+    .field-head{display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .field label{font-size:14px;font-weight:900}
+    .optional{color:var(--muted);font-size:10px;font-weight:500}
+    textarea,input[type="text"]{
+      width:100%;border:1px solid #ded9e9;border-radius:16px;background:#fdfcff;
+      color:var(--ink);transition:border-color .16s,box-shadow .16s;
+    }
+    textarea{min-height:120px;padding:14px 15px;resize:vertical;line-height:1.7}
+    input[type="text"]{height:50px;padding:0 15px}
+    textarea:focus,input[type="text"]:focus{border-color:var(--violet);outline:0;box-shadow:0 0 0 4px rgba(112,98,220,.1)}
+    .field-note{display:flex;gap:12px;justify-content:space-between;color:var(--muted);font-size:11px}
+    .voice-open{
+      min-height:44px;padding:8px 12px;border:1px solid #d7d1ec;border-radius:12px;
+      background:#f8f6ff;color:var(--violet-deep);font-size:12px;font-weight:900;cursor:pointer;
+    }
+    .voice-open:disabled{cursor:not-allowed;opacity:.58}
+    .voice-panel{margin-top:8px;padding:14px;border:1px solid #dcd7ed;border-radius:16px;background:#faf9ff}
+    .voice-panel strong{font-size:13px}
+    .voice-panel p{margin:5px 0 0;color:var(--muted);font-size:12px}
+    .voice-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}
+    .voice-actions button{
+      min-height:44px;padding:8px 12px;border:1px solid #d9d4e6;border-radius:11px;
+      background:#fff;font-size:12px;font-weight:800;cursor:pointer;
+    }
+    .voice-actions .voice-primary{border-color:transparent;background:var(--ink);color:#fff}
+    .recording-line{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    .recording-dot{width:10px;height:10px;border-radius:50%;background:var(--coral);box-shadow:0 0 0 4px rgba(218,109,91,.14);animation:pulse 1s ease-in-out infinite}
+    .recording-line time{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+    .voice-status{min-height:20px;margin:8px 0 0;color:var(--muted);font-size:12px}
+    .choice-row{
+      display:flex;gap:12px;align-items:flex-start;margin-top:13px;padding:14px;
+      border:1px solid #ded9ed;border-radius:17px;background:#faf9ff;cursor:pointer;
+    }
+    .choice-row.ai{border-color:#cce6d9;background:#f7fcfa}
+    .choice-row input{flex:0 0 20px;width:20px;height:20px;margin-top:2px;accent-color:var(--violet)}
+    .choice-row span{display:grid}
+    .choice-row strong{font-size:13px}
+    .choice-row small{color:var(--muted);font-size:11px}
+    .submit-area{display:grid;gap:9px;margin-top:22px}
+    .primary-button{
+      min-height:54px;border:0;border-radius:16px;
+      background:linear-gradient(135deg,#34364f,var(--ink));
+      box-shadow:0 12px 25px rgba(37,38,63,.2);
+      color:#fff;font-weight:900;cursor:pointer;
+    }
+    .primary-button:disabled{cursor:wait;opacity:.62}
+    .action-note,.inline-status{margin:0;color:var(--muted);font-size:11px;text-align:center}
+    .inline-status{min-height:20px}
+    .reply-panel{border-color:#d9d3f6;background:linear-gradient(145deg,#f6f4ff,#fff 72%);animation:rise .24s ease-out both}
+    .reply-head{display:flex;gap:12px;align-items:center}
+    .reply-avatar{display:grid;width:52px;height:52px;place-items:center;border-radius:16px;background:#fff;font-size:29px}
+    .reply-head h2{margin:0;font-size:18px}
+    .reply-head p{margin:2px 0 0;color:var(--muted);font-size:10px}
+    .reply-text{margin:15px 0 0;font-size:14px}
+    .reply-nudge{color:var(--muted);font-size:12px}
+    .speech-controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+    .speech-controls button,.close-session{
+      min-height:44px;padding:8px 12px;border:1px solid #d9d3ea;border-radius:11px;
+      background:#fff;color:var(--violet-deep);font-size:12px;font-weight:900;cursor:pointer;
+    }
+    .speech-controls button:disabled{cursor:not-allowed;opacity:.58}
+    .reply-close{
+      margin-top:15px;padding:13px;border-radius:14px;background:#fff;
+      box-shadow:inset 0 0 0 1px #e5e1f1;
+    }
+    .reply-close p{margin:0 0 10px;color:var(--muted);font-size:12px}
+    .close-session{border-color:transparent;background:var(--ink);color:#fff}
+    .urgent-panel{border-color:#e8a58f;background:#fff2ed}
+    .urgent-panel .reply-head p,.urgent-panel .reply-nudge{color:#7c493a}
+    .records-panel{padding:22px}
+    .records-head{display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .records-head h2{margin:0;font-size:18px}
+    .record-count{padding:5px 9px;border-radius:999px;background:var(--violet-soft);color:var(--violet-deep);font-size:10px;font-weight:900}
+    .empty-state{margin-top:16px;padding:25px;border:1px dashed #d9d4e5;border-radius:16px;color:var(--muted);font-size:12px;text-align:center}
+    .records-list{display:grid;gap:9px;margin:15px 0 0;padding:0;list-style:none}
+    .record-item{padding:13px;border:1px solid #e6e2ed;border-radius:15px;background:#fdfcff}
+    .record-top{display:flex;gap:10px;justify-content:space-between}
+    .record-top strong{font-size:13px}
+    .record-top time{color:var(--muted);font-size:10px}
+    .record-item p{margin:6px 0;color:#676779;font-size:11px;overflow-wrap:anywhere}
+    .record-meta{display:flex;flex-wrap:wrap;gap:5px}
+    .record-meta span{padding:3px 7px;border-radius:999px;background:var(--green-soft);color:var(--green);font-size:9px}
+    .records-footer{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-top:14px}
+    .records-footer p{margin:0;color:var(--muted);font-size:10px}
+    .quiet-button{min-height:44px;padding:8px 11px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#855045;font-size:11px;font-weight:800;cursor:pointer}
+    .quiet-button:disabled{cursor:not-allowed;opacity:.48}
+    .teacher-boundary{
+      padding:22px;border:1px solid #dcd6ef;border-radius:24px;
+      background:linear-gradient(145deg,#f0edff,#fff);box-shadow:var(--shadow);
+    }
+    .teacher-boundary strong{display:block;color:var(--violet-deep);font-size:12px;letter-spacing:.08em}
+    .teacher-boundary p{margin:8px 0;color:var(--muted);font-size:13px}
+    .teacher-boundary ul{display:grid;gap:6px;margin:12px 0 0;padding-left:20px;color:#55576d;font-size:12px}
+    .teacher-section{margin-top:24px}
+    .teacher-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .metric{
+      padding:20px;border:1px solid var(--line);border-radius:20px;background:#fff;
+      box-shadow:0 12px 30px rgba(59,50,108,.06);
+    }
+    .metric p{margin:0;color:var(--muted);font-size:11px}
+    .metric strong{display:block;margin:5px 0;font-size:30px;line-height:1}
+    .metric span{color:var(--muted);font-size:10px}
+    .metric.urgent{border-color:#e8aa98;background:#fff4ef}
+    .metric.urgent strong{color:#a34736}
+    .teacher-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+    .distribution{display:grid;gap:12px;margin:18px 0 0;padding:0;list-style:none}
+    .distribution li{display:grid;grid-template-columns:110px 1fr 44px;gap:10px;align-items:center;font-size:11px}
+    .bar{height:10px;overflow:hidden;border-radius:999px;background:#eeecf4}
+    .bar span{display:block;width:var(--w);height:100%;border-radius:inherit;background:var(--c)}
+    .distribution strong{text-align:right}
+    .trend-note{margin:10px 0;color:var(--muted);font-size:11px}
+    .trend{display:flex;gap:9px;align-items:end;height:160px;margin:18px 0 0;padding:0;list-style:none}
+    .trend li{display:grid;flex:1;gap:6px;height:100%;grid-template-rows:1fr auto;align-items:end;text-align:center}
+    .trend-bar{position:relative;height:var(--h);min-height:20px;border-radius:10px 10px 4px 4px;background:linear-gradient(180deg,#8779e9,#c9c3f6)}
+    .trend-bar.marked::after{position:absolute;top:-7px;left:50%;width:10px;height:10px;transform:translateX(-50%);border:2px solid var(--coral);border-radius:50%;background:#fff;content:""}
+    .trend time{color:var(--muted);font-size:10px}
+    .queue{display:grid;gap:10px;margin-top:17px}
+    .queue-item{
+      display:grid;grid-template-columns:auto 1fr auto;gap:13px;align-items:center;
+      padding:15px;border:1px solid #e4e0eb;border-radius:17px;background:#fdfcff;
+    }
+    .queue-item.urgent{border-color:#e5a590;background:#fff5f1}
+    .priority{display:grid;width:35px;height:35px;place-items:center;border-radius:12px;background:var(--violet-soft);color:var(--violet-deep);font-weight:900}
+    .queue-item.urgent .priority{background:var(--coral);color:#fff}
+    .queue-item h3{margin:0;font-size:13px}
+    .queue-signals{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+    .queue-signals span{padding:3px 7px;border-radius:999px;background:#eeecf5;color:#626377;font-size:9px}
+    .queue-item time{color:var(--muted);font-size:10px}
+    .queue-note{margin:7px 0 0;color:var(--muted);font-size:11px}
+    .cccr{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:17px 0 0;padding:0;list-style:none}
+    .cccr li{padding:15px;border:1px solid #e2deeb;border-radius:16px;background:#fdfcff}
+    .cccr b{color:var(--violet-deep);font-size:10px}
+    .cccr h3{margin:6px 0 5px;font-size:14px}
+    .cccr p{margin:0;color:var(--muted);font-size:10px}
+    .teacher-callout{margin-top:14px;padding:14px;border-radius:15px;background:var(--ink);color:#e7e6ef;font-size:11px}
+    footer{
+      width:min(1320px,calc(100% - 40px));margin:0 auto;padding:24px 0 calc(34px + env(safe-area-inset-bottom));
+      border-top:1px solid var(--line);color:var(--muted);font-size:11px;
+    }
+    footer p{margin:4px 0}
+    @keyframes pet-arrive{from{transform:translateY(5px);opacity:0}to{transform:translateY(0);opacity:1}}
+    @keyframes pet-ack{0%{transform:translateY(0) rotate(0)}42%{transform:translateY(-4px) rotate(-1.2deg)}100%{transform:translateY(0) rotate(0)}}
+    @keyframes pet-think{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+    @keyframes pulse{0%,100%{opacity:.55;transform:scale(.9)}50%{opacity:1;transform:scale(1.08)}}
+    @keyframes rise{from{transform:translateY(5px);opacity:0}to{transform:translateY(0);opacity:1}}
+    @media(max-width:980px){
+      .site-header{grid-template-columns:1fr auto}.archive-link{display:none}
+      .student-hero,.teacher-hero{grid-template-columns:1fr .7fr}
+      .student-workspace{grid-template-columns:1fr}.side-stack{position:static;grid-template-columns:1fr 1fr}.teacher-metrics{grid-template-columns:repeat(2,1fr)}
+    }
+    @media(max-width:760px){
+      .demo-banner{justify-content:flex-start;text-align:left}
+      .site-header{grid-template-columns:1fr;gap:8px;padding:10px 16px}.view-nav{width:100%}.view-nav a{flex:1}
+      main,footer{width:min(100% - 24px,680px)}
+      .student-hero,.teacher-hero{grid-template-columns:1fr;gap:22px}.pet-card{min-height:230px}
+      .hero-copy h1,.teacher-hero h1{font-size:clamp(38px,12vw,54px)}
+      .safety-strip{grid-template-columns:auto 1fr}.safety-strip .emergency-links{grid-column:1/-1}
+      .mood-grid{grid-template-columns:repeat(3,1fr)}
+      .side-stack,.teacher-grid{grid-template-columns:1fr}
+      .cccr{grid-template-columns:repeat(2,1fr)}
+    }
+    @media(max-width:520px){
+      main{padding-top:24px}.brand-copy small{display:none}
+      .panel{padding:20px 16px;border-radius:22px}.panel-heading{flex-direction:column}
+      .field-head{align-items:flex-start;flex-direction:column}.voice-open{width:100%}
+      .voice-actions button,.speech-controls button,.close-session{flex:1 1 100%}
+      .choice-row small{font-size:11px}.teacher-metrics{grid-template-columns:1fr}
+      .distribution li{grid-template-columns:92px 1fr 38px}
+      .queue-item{grid-template-columns:auto 1fr}.queue-item time{grid-column:2}
+      .cccr{grid-template-columns:1fr}.records-footer{align-items:flex-start;flex-direction:column}
+      .quiet-button{width:100%}
+    }
+    @media(forced-colors:active){
+      .mood-choice:has(input:checked),.voice-panel,.urgent-panel,.queue-item.urgent{border:2px solid CanvasText}
+      .recording-dot,.pet-status i{border:2px solid CanvasText}
+    }
+    @media(prefers-reduced-motion:reduce){
+      html{scroll-behavior:auto}
+      *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
+    }
+  </style>
+</head>
+<body data-state="idle" data-mood="none">
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+
+  <div class="demo-banner" role="note" aria-label="静态演示重要说明">
+    <strong>演示版：</strong>
+    <span>不上传、不长期保存、不连接模型 API、不发送危机通知，请勿输入真实个人信息。</span>
+  </div>
+
+  <header class="site-header">
+    <a class="brand" href="#student" data-view-link="student" aria-label="心伴 AI-Pet 学生端演示首页">
+      <span class="brand-mark" aria-hidden="true">心</span>
+      <span class="brand-copy">
+        <strong>心伴 AI-Pet</strong>
+        <small>v3.1.0 · 双端静态演示</small>
+      </span>
+    </a>
+
+    <nav class="view-nav" aria-label="切换学生端与教师端">
+      <a href="#student" data-view-link="student">学生端 · 小伴</a>
+      <a href="#teacher" data-view-link="teacher">教师端 · 虚构样例</a>
+    </nav>
+
+    <a class="archive-link" href="../../">返回版本档案</a>
+  </header>
+
+  <main id="main-content">
+    <section id="student" data-view="student" aria-labelledby="student-title">
+      <div class="student-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">每日 30 秒 · 自主记录 · AI 回应可选</p>
+          <h1 id="student-title" class="view-heading" tabindex="-1">今天的心情，<br><em>值得被轻轻接住。</em></h1>
+          <p>可以只选一个心情、写几句，或者今天跳过。这里不是心理测评，也不会给你贴标签。</p>
+          <div class="hero-tags" aria-label="静态演示边界">
+            <span>仅本页内存</span>
+            <span>固定安全回应</span>
+            <span>刷新即清空</span>
+          </div>
+        </div>
+
+        <aside class="pet-card" aria-label="AI 心情伙伴小伴">
+          <span class="demo-stamp">OFFLINE DEMO</span>
+          <div class="pet-halo" aria-hidden="true"></div>
+          <div class="pet-face" role="img" aria-label="微笑的小狗伙伴">🐶</div>
+          <div class="pet-status" role="status" aria-live="polite"><i aria-hidden="true"></i><span id="pet-status">AI 回应可选</span></div>
+          <p class="pet-boundary"><strong>我是 AI 小伴。</strong>可以帮你把今天理清一点，但不是真人，也可能理解错。</p>
+        </aside>
+      </div>
+
+      <aside class="safety-strip" aria-labelledby="student-help-title">
+        <span class="safety-icon" aria-hidden="true">!</span>
+        <div>
+          <h2 id="student-help-title">现实中的危险，需要现实中的人来帮助</h2>
+          <p>请立即告诉身边可信任的成人；紧急危险联系 110，突发伤病联系 120。本演示不会通知任何人。</p>
+        </div>
+        <div class="emergency-links" aria-label="人工紧急求助电话">
+          <a href="tel:110" aria-label="拨打报警电话 110">人工求助 110</a>
+          <a href="tel:120" aria-label="拨打急救电话 120">医疗急救 120</a>
+        </div>
+      </aside>
+
+      <div class="student-workspace">
+        <section class="panel" aria-labelledby="checkin-title">
+          <div class="panel-heading">
+            <div>
+              <p class="section-kicker">STEP 01 · 看见此刻</p>
+              <h2 id="checkin-title">哪个最像你现在的心情？</h2>
+            </div>
+            <span class="step-badge">没有对错</span>
+          </div>
+
+          <form id="mood-form" novalidate>
+            <fieldset>
+              <legend>选择一个最接近此刻的心情</legend>
+              <div class="mood-grid">
+                <label class="mood-choice"><input type="radio" name="mood" value="happy"><span aria-hidden="true">☀️</span><strong>开心</strong></label>
+                <label class="mood-choice"><input type="radio" name="mood" value="calm"><span aria-hidden="true">🍃</span><strong>平静</strong></label>
+                <label class="mood-choice"><input type="radio" name="mood" value="tense"><span aria-hidden="true">🌤️</span><strong>紧张</strong></label>
+                <label class="mood-choice"><input type="radio" name="mood" value="sad"><span aria-hidden="true">🌧️</span><strong>难过</strong></label>
+                <label class="mood-choice"><input type="radio" name="mood" value="upset"><span aria-hidden="true">🌋</span><strong>烦躁</strong></label>
+                <label class="mood-choice"><input type="radio" name="mood" value="unclear"><span aria-hidden="true">🌫️</span><strong>说不清</strong></label>
+              </div>
+            </fieldset>
+
+            <p id="mood-feedback" class="mood-feedback" role="status" aria-live="polite" hidden>
+              <strong id="mood-feedback-label"></strong>
+              <span id="mood-feedback-copy"></span>
+            </p>
+
+            <div class="prompt-row" aria-label="可选的记录开头">
+              <button type="button" data-prompt="今天有件小事让我开心">今天有件小事让我开心</button>
+              <button type="button" data-prompt="学习上有点卡住">学习上有点卡住</button>
+              <button type="button" data-prompt="和同学相处有点难">和同学相处有点难</button>
+              <button type="button" data-prompt="我想先安静一下">我想先安静一下</button>
+            </div>
+
+            <div class="field">
+              <div class="field-head">
+                <label for="mood-note">今天最想记下什么？ <span class="optional">可不填</span></label>
+                <button id="voice-open" class="voice-open" type="button" aria-expanded="false" aria-controls="voice-panel">语音输入演示</button>
+              </div>
+              <textarea id="mood-note" name="note" maxlength="300" autocomplete="off" aria-describedby="note-help note-count voice-status" placeholder="比如：数学最后一道题有点难，我有些着急……"></textarea>
+              <div class="field-note"><span id="note-help">请不要写姓名、电话、学校或住址</span><span id="note-count">0 / 300</span></div>
+
+              <div id="voice-panel" class="voice-panel" hidden>
+                <div id="voice-disclosure">
+                  <strong>这是本地录音控制演示</strong>
+                  <p>最多 30 秒。音频只暂存在当前页面内存，停止或取消后立即丢弃；不上传、不转写，也不会自动填入文字。正式全栈版另有 2.5MB 限制。</p>
+                  <div class="voice-actions">
+                    <button id="voice-start" class="voice-primary" type="button">我知道了，开始本地录音</button>
+                    <button id="voice-close" type="button">暂不使用</button>
+                  </div>
+                </div>
+                <div id="voice-recording" hidden>
+                  <div class="recording-line" role="status">
+                    <span class="recording-dot" aria-hidden="true"></span>
+                    <strong>正在本地录音</strong>
+                    <time id="voice-time">0:00 / 0:30</time>
+                  </div>
+                  <div class="voice-actions">
+                    <button id="voice-stop" class="voice-primary" type="button">停止并丢弃</button>
+                    <button id="voice-cancel" type="button">取消并丢弃</button>
+                  </div>
+                </div>
+              </div>
+              <p id="voice-status" class="voice-status" role="status" aria-live="polite"></p>
+            </div>
+
+            <div class="field">
+              <label for="small-goal">给今天一个小小的下一步 <span class="optional">可不填</span></label>
+              <input id="small-goal" name="goal" type="text" maxlength="60" autocomplete="off" aria-describedby="goal-help goal-count" placeholder="比如：把错题整理一题">
+              <div class="field-note"><span id="goal-help">从容易做到的一小步开始</span><span id="goal-count">0 / 60</span></div>
+            </div>
+
+            <label class="choice-row" for="wants-support">
+              <input id="wants-support" name="wantsSupport" type="checkbox">
+              <span><strong>演示：我想找可信任的成人聊聊</strong><small>只显示在你的本页演示记录中，不会发送给教师、家长或任何机构。</small></span>
+            </label>
+
+            <label class="choice-row ai" for="wants-ai">
+              <input id="wants-ai" name="wantsAi" type="checkbox">
+              <span><strong>我也想看一条固定 AI 示例建议</strong><small>默认关闭。开启后也不会发送文字；页面只按心情显示预先写好的安全文案。</small></span>
+            </label>
+
+            <div class="submit-area">
+              <button id="submit-button" class="primary-button" type="submit">保存本页演示记录</button>
+              <p class="action-note">记录框文字只进入当前学生视图的内存数组；教师端始终使用另一组预置虚构数据。</p>
+              <p id="form-status" class="inline-status" role="status" aria-live="polite"></p>
+            </div>
+          </form>
+        </section>
+
+        <div class="side-stack">
+          <section id="pet-reply" class="panel reply-panel" aria-labelledby="reply-title" tabindex="-1" hidden>
+            <div class="reply-head">
+              <span class="reply-avatar" aria-hidden="true">🐶</span>
+              <div><h2 id="reply-title">一条可选的 AI 示例</h2><p>固定安全文案 · 未连接任何模型</p></div>
+            </div>
+            <p id="reply-text" class="reply-text"></p>
+            <p class="reply-nudge">这只是一条演示建议。可以采用、修改或忽略；真正的支持来自现实中的人。</p>
+            <div class="speech-controls" aria-label="设备朗读控制">
+              <button id="speech-toggle" type="button">使用设备朗读</button>
+              <button id="speech-stop" type="button" hidden>停止</button>
+              <span id="speech-status" role="status" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)"></span>
+            </div>
+            <div class="reply-close">
+              <p><strong>今天先记到这里就好。</strong>你不必马上解决全部，需要时可以让现实中的人一起帮忙。</p>
+              <button id="close-session" class="close-session" type="button">完成今天记录</button>
+            </div>
+          </section>
+
+          <section id="urgent-reply" class="panel reply-panel urgent-panel" aria-labelledby="urgent-title" tabindex="-1" hidden>
+            <div class="reply-head">
+              <span class="reply-avatar" aria-hidden="true">!</span>
+              <div><h2 id="urgent-title">现在先保证安全</h2><p>本页本地关键词提示 · 不会自动通知</p></div>
+            </div>
+            <p class="reply-text">请现在停止独自等待网页回应，立即走到身边可信任的成年人旁边并告诉对方。如果你或别人正面临立即危险，请拨打 110；突发伤病拨打 120。</p>
+            <div class="emergency-links">
+              <a href="tel:110">立即拨打 110</a><a href="tel:120">立即拨打 120</a><a href="#student-help-title">找可信任的大人</a>
+            </div>
+            <p class="reply-nudge">本演示不会发送消息，也不能确认老师是否已经看到。你的文字仍只在本页内存中。</p>
+          </section>
+
+          <section class="panel records-panel" aria-labelledby="records-title">
+            <div class="records-head"><h2 id="records-title">我的本页演示记录</h2><span id="record-count" class="record-count">0 条</span></div>
+            <div id="records-empty" class="empty-state">还没有记录。完成一次选择后，它会暂时出现在这里。</div>
+            <ol id="records-list" class="records-list" aria-live="polite" hidden></ol>
+            <div class="records-footer"><p>只存在于 JavaScript 内存；不使用浏览器存储。</p><button id="clear-records" class="quiet-button" type="button" disabled>清空本页记录</button></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section id="teacher" data-view="teacher" aria-labelledby="teacher-title" hidden>
+      <div class="teacher-hero">
+        <div class="teacher-copy">
+          <p class="eyebrow">教师支持台 · 完全虚构脱敏数据</p>
+          <h1 id="teacher-title" class="view-heading" tabindex="-1">看见信号，<br><em>回到真实陪伴。</em></h1>
+          <p>这里展示的是固定聚合样例，不读取学生端内存记录，也不会随学生输入变化。它不是诊断、测评、排名或教师绩效工具。</p>
+          <div class="hero-tags"><span>固定虚构样例</span><span>无聊天原文</span><span>必须真人核对</span></div>
+        </div>
+        <aside class="teacher-boundary" aria-label="教师静态样例边界">
+          <strong>STATIC SAMPLE · 与学生演示隔离</strong>
+          <p>本页教师数据在 HTML 中预先写死，只用于说明最少必要披露。</p>
+          <ul>
+            <li>不读取学生端输入或本页内存数组</li>
+            <li>不展示普通聊天、日记或录音内容</li>
+            <li>立即项必须由现实中的成人确认</li>
+          </ul>
+        </aside>
+      </div>
+
+      <aside class="safety-strip" aria-labelledby="teacher-help-title">
+        <span class="safety-icon" aria-hidden="true">!</span>
+        <div>
+          <h2 id="teacher-help-title">本演示不会发送危机通知</h2>
+          <p>现实中发现危险必须立即启动学校人工应急流程；紧急危险联系 110，突发伤病联系 120。</p>
+        </div>
+        <div class="emergency-links"><a href="tel:110">人工求助 110</a><a href="tel:120">医疗急救 120</a></div>
+      </aside>
+
+      <section class="teacher-section" aria-labelledby="overview-title">
+        <div class="panel-heading">
+          <div><p class="section-kicker">虚构班级 · 7 日窗口</p><h2 id="overview-title">支持概览</h2></div>
+          <span class="fiction-badge">全部为预置虚构数据</span>
+        </div>
+        <div class="teacher-metrics">
+          <article class="metric"><p>今日完成</p><strong>24</strong><span>份虚构记录</span></article>
+          <article class="metric"><p>7 天平均</p><strong>22.9</strong><span>份记录 / 日</span></article>
+          <article class="metric"><p>主动支持请求</p><strong>3</strong><span>个虚构信号</span></article>
+          <article class="metric urgent"><p>需立即人工确认</p><strong>1</strong><span>仅作流程演示</span></article>
+        </div>
+      </section>
+
+      <div class="teacher-grid">
+        <article class="panel" aria-labelledby="distribution-title">
+          <div class="panel-heading"><div><p class="section-kicker">群体分布 · 不作个体评价</p><h2 id="distribution-title">7 日心情分布</h2></div><span class="fiction-badge">160 份样例</span></div>
+          <ul class="distribution">
+            <li><span>平静、安心</span><div class="bar" role="img" aria-label="平静、安心 33%"><span style="--w:33%;--c:#328665"></span></div><strong>33%</strong></li>
+            <li><span>开心、有力量</span><div class="bar" role="img" aria-label="开心、有力量 26%"><span style="--w:26%;--c:#d69a32"></span></div><strong>26%</strong></li>
+            <li><span>担心、紧张</span><div class="bar" role="img" aria-label="担心、紧张 18%"><span style="--w:18%;--c:#4c8dcc"></span></div><strong>18%</strong></li>
+            <li><span>难过、低落</span><div class="bar" role="img" aria-label="难过、低落 11%"><span style="--w:11%;--c:#7062dc"></span></div><strong>11%</strong></li>
+            <li><span>烦躁或疲惫</span><div class="bar" role="img" aria-label="烦躁或疲惫 12%"><span style="--w:12%;--c:#da6d5b"></span></div><strong>12%</strong></li>
+          </ul>
+        </article>
+
+        <article class="panel" aria-labelledby="trend-title">
+          <div class="panel-heading"><div><p class="section-kicker">群体走势 · 不作诊断</p><h2 id="trend-title">7 日记录趋势</h2></div><span class="fiction-badge">固定样例</span></div>
+          <p class="trend-note">柱形仅表示虚构记录量；空心点表示当天含一个虚构的立即核对项。</p>
+          <ol class="trend" aria-label="七日虚构记录量走势">
+            <li aria-label="周四 21份"><div class="trend-bar" style="--h:66%"></div><time>周四</time></li>
+            <li aria-label="周五 23份"><div class="trend-bar" style="--h:73%"></div><time>周五</time></li>
+            <li aria-label="周六 20份"><div class="trend-bar" style="--h:63%"></div><time>周六</time></li>
+            <li aria-label="周日 19份"><div class="trend-bar" style="--h:60%"></div><time>周日</time></li>
+            <li aria-label="周一 27份"><div class="trend-bar" style="--h:86%"></div><time>周一</time></li>
+            <li aria-label="周二 26份，含立即核对项"><div class="trend-bar marked" style="--h:82%"></div><time>周二</time></li>
+            <li aria-label="周三 24份"><div class="trend-bar" style="--h:76%"></div><time>周三</time></li>
+          </ol>
+        </article>
+      </div>
+
+      <section class="panel teacher-section" aria-labelledby="queue-title">
+        <div class="panel-heading"><div><p class="section-kicker">最少必要线索 · 固定样例</p><h2 id="queue-title">人工支持队列</h2></div><span class="fiction-badge">绝不展示原始聊天</span></div>
+        <p class="queue-note">队列只呈现匿名编号、结构化心情、主动支持选择、级别和虚构时间；以下内容均不来自学生端。</p>
+        <div class="queue">
+          <article class="queue-item urgent">
+            <span class="priority" aria-hidden="true">!</span>
+            <div><h3>虚构同学 X-021 · 立即人工确认</h3><div class="queue-signals"><span>主动请求真人支持</span><span>心情：难过</span><span>安全级别：立即核对</span></div></div>
+            <time datetime="10:08">虚构时间 10:08</time>
+          </article>
+          <article class="queue-item">
+            <span class="priority" aria-hidden="true">·</span>
+            <div><h3>虚构同学 X-014 · 尽快温和跟进</h3><div class="queue-signals"><span>主动请求真人支持</span><span>心情：紧张</span><span>安全级别：常规</span></div></div>
+            <time datetime="09:32">虚构时间 09:32</time>
+          </article>
+          <article class="queue-item">
+            <span class="priority" aria-hidden="true">·</span>
+            <div><h3>虚构同学 X-008 · 约定交流时间</h3><div class="queue-signals"><span>主动请求真人支持</span><span>心情：烦躁</span><span>安全级别：常规</span></div></div>
+            <time datetime="08:45">虚构时间 08:45</time>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel teacher-section" aria-labelledby="cccr-title">
+        <div class="panel-heading"><div><p class="section-kicker">CUE → CHECK → CHOOSE → REFLECT</p><h2 id="cccr-title">把系统提醒变成真人支持</h2></div><span class="fiction-badge">不是诊断或评价</span></div>
+        <ol class="cccr">
+          <li><b>01 · Cue</b><h3>看见线索</h3><p>只看最少结构化信号，分清学生表达与教师推测。</p></li>
+          <li><b>02 · Check</b><h3>当面核对</h3><p>平静确认学生此刻是否安全、希望谁陪伴。</p></li>
+          <li><b>03 · Choose</b><h3>共同选择</h3><p>一起选倾听、休息、联系专业人员或应急服务。</p></li>
+          <li><b>04 · Reflect</b><h3>简要回看</h3><p>只记支持是否送达和下次时间，不扩写隐私。</p></li>
+        </ol>
+        <div class="teacher-callout">立即项不能只在系统里“看过”：必须由现实中的可信任成人确认学生已经被联系、支持已经送达。</div>
+      </section>
+    </section>
+  </main>
+
+  <footer>
+    <p><strong>心伴 AI-Pet v3.1.0</strong> 是静态交互演示，不是医疗、心理诊断、测评、治疗或紧急服务。</p>
+    <p>无上传 · 无持久化 · 无数据库 · 无模型 API · 无自动危机通知 · 学生输入与教师虚构样例完全隔离</p>
+  </footer>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const records = [];
+      const validViews = new Set(["student", "teacher"]);
+      const moodInfo = {
+        happy: { label: "开心", icon: "☀️", feedback: "记下开心也很重要。可以留下一件想记住的小事。", reply: "谢谢你记录这份开心。可以把让你感觉不错的小事留在今天，也可以把这份轻松分享给现实中信任的人。今天先记到这里就好。" },
+        calm: { label: "平静", icon: "🍃", feedback: "平静也值得被看见。可以写下让你安稳的一件事。", reply: "看到你选择了平静。可以先保持现在舒服的节奏，再挑一个容易完成的小步骤。你也可以不做更多，今天先记到这里。" },
+        tense: { label: "紧张", icon: "🌤️", feedback: "紧张常常说明有件事很在意。可以只写最卡住的一点。", reply: "紧张时不用一次解决全部。试着把脚踩稳，慢慢呼吸，再只选眼前最小的一步。如果仍然难受，可以告诉现实中信任的成人。" },
+        sad: { label: "难过", icon: "🌧️", feedback: "难过时不用急着振作。写一句也可以，或直接找人聊聊。", reply: "难过的时候，不必要求自己马上好起来。可以先喝口水、坐到安全的地方，再找一位信任的成人说一句“我今天有点难受”。" },
+        upset: { label: "烦躁", icon: "🌋", feedback: "先不用把事情全部说清楚。可以从最不舒服的一点开始。", reply: "烦躁时可以先暂停一下，不急着做决定。把手边事情缩成一个很小的动作，或离开冲突现场，找现实中的人一起理清。" },
+        unclear: { label: "说不清", icon: "🌫️", feedback: "说不清也没关系。可以只停在这里，或写下身体现在的感觉。", reply: "说不清也完全可以。先注意呼吸、肩膀或胃里是什么感觉，不需要给它命名。需要时，可以直接告诉信任的成人“我现在不太好说”。" }
+      };
+      const statusText = {
+        idle: "AI 回应可选",
+        "mood-selected": "已记下这份心情",
+        saving: "正在本页整理",
+        responding: "正在准备固定文案",
+        done: "今天的记录已完成",
+        urgent: "现在先联系真人"
+      };
+      const crisisTerms = ["自杀", "不想活", "结束生命", "伤害自己", "杀了", "杀人", "跳楼", "割腕"];
+
+      const views = Array.from(document.querySelectorAll("[data-view]"));
+      const viewLinks = Array.from(document.querySelectorAll("[data-view-link]"));
+      const form = document.getElementById("mood-form");
+      const noteInput = document.getElementById("mood-note");
+      const goalInput = document.getElementById("small-goal");
+      const noteCount = document.getElementById("note-count");
+      const goalCount = document.getElementById("goal-count");
+      const feedback = document.getElementById("mood-feedback");
+      const feedbackLabel = document.getElementById("mood-feedback-label");
+      const feedbackCopy = document.getElementById("mood-feedback-copy");
+      const aiChoice = document.getElementById("wants-ai");
+      const submitButton = document.getElementById("submit-button");
+      const formStatus = document.getElementById("form-status");
+      const petStatus = document.getElementById("pet-status");
+      const replyPanel = document.getElementById("pet-reply");
+      const urgentPanel = document.getElementById("urgent-reply");
+      const replyText = document.getElementById("reply-text");
+      const recordsList = document.getElementById("records-list");
+      const recordsEmpty = document.getElementById("records-empty");
+      const recordCount = document.getElementById("record-count");
+      const clearRecords = document.getElementById("clear-records");
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+      let recorder = null;
+      let mediaStream = null;
+      let chunks = [];
+      let recordingTimer = 0;
+      let recordingLimit = 0;
+      let recordingSeconds = 0;
+      let stopMode = "discard";
+      let speechState = "idle";
+
+      function setCompanionState(state) {
+        document.body.dataset.state = state;
+        petStatus.textContent = statusText[state] || statusText.idle;
+      }
+
+      function activeViewFromHash() {
+        const value = window.location.hash.replace(/^#/, "");
+        return validViews.has(value) ? value : "student";
+      }
+
+      function stopSpeech() {
+        if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+        speechState = "idle";
+        document.getElementById("speech-toggle").textContent = "使用设备朗读";
+        document.getElementById("speech-stop").hidden = true;
+        document.getElementById("speech-status").textContent = "设备朗读已停止";
+      }
+
+      function showView(name, moveFocus) {
+        if (name === "teacher") discardRecording("切换到教师端前，本地录音已丢弃。");
+        stopSpeech();
+        views.forEach((view) => { view.hidden = view.dataset.view !== name; });
+        viewLinks.forEach((link) => {
+          if (link.dataset.viewLink === name) link.setAttribute("aria-current", "page");
+          else link.removeAttribute("aria-current");
+        });
+        document.title = name === "teacher"
+          ? "教师端虚构样例｜心伴 AI-Pet v3.1.0"
+          : "学生端静态演示｜心伴 AI-Pet v3.1.0";
+        if (moveFocus) {
+          const heading = document.querySelector("#" + name + " .view-heading");
+          if (heading) heading.focus({ preventScroll: true });
+          document.getElementById("main-content").scrollIntoView({ block: "start" });
+        }
+      }
+
+      viewLinks.forEach((link) => {
+        link.addEventListener("click", (event) => {
+          const name = link.dataset.viewLink;
+          if (!validViews.has(name)) return;
+          event.preventDefault();
+          if (window.location.hash === "#" + name) showView(name, true);
+          else window.location.hash = name;
+        });
+      });
+      window.addEventListener("hashchange", () => showView(activeViewFromHash(), true));
+
+      document.querySelectorAll('input[name="mood"]').forEach((input) => {
+        input.addEventListener("change", () => {
+          const info = moodInfo[input.value];
+          if (!info) return;
+          document.body.dataset.mood = input.value;
+          setCompanionState("mood-selected");
+          feedbackLabel.textContent = info.label;
+          feedbackCopy.textContent = info.feedback;
+          feedback.hidden = false;
+          formStatus.textContent = "";
+        });
+      });
+
+      document.querySelectorAll("[data-prompt]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const prompt = button.dataset.prompt || "";
+          noteInput.value = noteInput.value.trim() ? (noteInput.value.trimEnd() + "\n" + prompt).slice(0, 300) : prompt;
+          noteCount.textContent = noteInput.value.length + " / 300";
+          noteInput.focus();
+        });
+      });
+
+      noteInput.addEventListener("input", () => { noteCount.textContent = noteInput.value.length + " / 300"; });
+      goalInput.addEventListener("input", () => { goalCount.textContent = goalInput.value.length + " / 60"; });
+      aiChoice.addEventListener("change", () => {
+        submitButton.textContent = aiChoice.checked ? "保存记录并查看固定示例" : "保存本页演示记录";
+      });
+
+      function formatTime(date) {
+        return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+      }
+
+      function appendMeta(container, text) {
+        const chip = document.createElement("span");
+        chip.textContent = text;
+        container.appendChild(chip);
+      }
+
+      function renderRecords() {
+        recordsList.replaceChildren();
+        recordCount.textContent = records.length + " 条";
+        recordsList.hidden = records.length === 0;
+        recordsEmpty.hidden = records.length !== 0;
+        clearRecords.disabled = records.length === 0;
+        records.forEach((record) => {
+          const item = document.createElement("li");
+          item.className = "record-item";
+          const top = document.createElement("div");
+          top.className = "record-top";
+          const mood = document.createElement("strong");
+          mood.textContent = record.icon + " " + record.label;
+          const time = document.createElement("time");
+          time.dateTime = record.createdAt.toISOString();
+          time.textContent = "本页 " + formatTime(record.createdAt);
+          top.append(mood, time);
+          item.appendChild(top);
+          if (record.note) {
+            const note = document.createElement("p");
+            note.textContent = record.note;
+            item.appendChild(note);
+          }
+          const meta = document.createElement("div");
+          meta.className = "record-meta";
+          appendMeta(meta, record.goal ? "小目标：" + record.goal : "未填写小目标");
+          appendMeta(meta, record.wantsSupport ? "演示选择：希望真人关心" : "未选择真人关心");
+          appendMeta(meta, "仅本页内存");
+          item.appendChild(meta);
+          recordsList.appendChild(item);
+        });
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const data = new FormData(form);
+        const moodId = data.get("mood");
+        const info = typeof moodId === "string" ? moodInfo[moodId] : null;
+        if (!info) {
+          formStatus.textContent = "请先选择一个最接近的心情，也可以选择“说不清”。";
+          const firstMood = form.querySelector('input[name="mood"]');
+          if (firstMood) firstMood.focus();
+          return;
+        }
+
+        submitButton.disabled = true;
+        setCompanionState("saving");
+        formStatus.textContent = "正在当前页面内存中整理；没有网络请求。";
+        const note = noteInput.value.trim();
+        const wantsAi = data.get("wantsAi") === "on";
+        const urgent = crisisTerms.some((term) => note.includes(term));
+        records.unshift({
+          label: info.label,
+          icon: info.icon,
+          note,
+          goal: goalInput.value.trim(),
+          wantsSupport: data.get("wantsSupport") === "on",
+          createdAt: new Date()
+        });
+        renderRecords();
+
+        const finish = () => {
+          form.reset();
+          noteCount.textContent = "0 / 300";
+          goalCount.textContent = "0 / 60";
+          feedback.hidden = true;
+          document.body.dataset.mood = "none";
+          submitButton.textContent = "保存本页演示记录";
+          submitButton.disabled = false;
+
+          if (urgent) {
+            replyPanel.hidden = true;
+            urgentPanel.hidden = false;
+            setCompanionState("urgent");
+            formStatus.textContent = "记录只留在本页；检测到需要立即找真人确认的本地安全词。";
+            urgentPanel.focus({ preventScroll: true });
+            urgentPanel.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "center" });
+            return;
+          }
+
+          urgentPanel.hidden = true;
+          if (wantsAi) {
+            setCompanionState("responding");
+            window.setTimeout(() => {
+              replyText.textContent = info.reply;
+              replyPanel.hidden = false;
+              setCompanionState("done");
+              formStatus.textContent = "已加入本页演示记录，并显示固定安全文案；学生输入没有发送，也没有进入教师端。";
+              replyPanel.focus({ preventScroll: true });
+              replyPanel.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "center" });
+            }, reducedMotion.matches ? 0 : 260);
+          } else {
+            replyPanel.hidden = true;
+            setCompanionState("done");
+            formStatus.textContent = "已加入本页演示记录；没有调用 AI，也不会进入教师端虚构样例。";
+          }
+        };
+        window.setTimeout(finish, reducedMotion.matches ? 0 : 220);
+      });
+
+      clearRecords.addEventListener("click", () => {
+        records.length = 0;
+        renderRecords();
+        formStatus.textContent = "本页演示记录已清空。";
+      });
+
+      document.getElementById("close-session").addEventListener("click", () => {
+        stopSpeech();
+        replyPanel.hidden = true;
+        formStatus.textContent = "今天先记到这里就好。本页记录仍可在右侧回看，刷新后清空。";
+        setCompanionState("done");
+        document.getElementById("checkin-title").scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "start" });
+      });
+
+      const voiceOpen = document.getElementById("voice-open");
+      const voicePanel = document.getElementById("voice-panel");
+      const voiceDisclosure = document.getElementById("voice-disclosure");
+      const voiceRecording = document.getElementById("voice-recording");
+      const voiceStatus = document.getElementById("voice-status");
+      const voiceTime = document.getElementById("voice-time");
+      const supportedMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg", "audio/mpeg", "audio/wav"];
+
+      function recordingSupported() {
+        return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder && supportedMimeTypes.some((type) => MediaRecorder.isTypeSupported(type)));
+      }
+
+      function clearRecordingTimers() {
+        window.clearInterval(recordingTimer);
+        window.clearTimeout(recordingLimit);
+        recordingTimer = 0;
+        recordingLimit = 0;
+      }
+
+      function releaseStream() {
+        if (mediaStream) mediaStream.getTracks().forEach((track) => track.stop());
+        mediaStream = null;
+      }
+
+      function finishDiscard(message) {
+        clearRecordingTimers();
+        releaseStream();
+        recorder = null;
+        chunks = [];
+        recordingSeconds = 0;
+        voiceTime.textContent = "0:00 / 0:30";
+        voiceRecording.hidden = true;
+        voiceDisclosure.hidden = false;
+        voiceStatus.textContent = message;
+      }
+
+      function discardRecording(message) {
+        stopMode = "cancel";
+        if (recorder && recorder.state === "recording") {
+          recorder.stop();
+          voiceStatus.textContent = message || "已取消，本地音频已丢弃。";
+        } else {
+          finishDiscard(message || "已取消，本地音频已丢弃。");
+        }
+      }
+
+      if (!recordingSupported()) {
+        voiceOpen.disabled = true;
+        voiceOpen.textContent = "设备不支持本地录音";
+        voiceStatus.textContent = "此浏览器不能运行本地录音演示，请继续使用文字输入。";
+      }
+
+      voiceOpen.addEventListener("click", () => {
+        voicePanel.hidden = false;
+        voiceDisclosure.hidden = false;
+        voiceRecording.hidden = true;
+        voiceOpen.setAttribute("aria-expanded", "true");
+        voiceStatus.textContent = "请先阅读录音边界，再决定是否允许麦克风。";
+      });
+
+      document.getElementById("voice-close").addEventListener("click", () => {
+        voicePanel.hidden = true;
+        voiceOpen.setAttribute("aria-expanded", "false");
+        voiceStatus.textContent = "未启动录音，可以继续使用文字输入。";
+      });
+
+      document.getElementById("voice-start").addEventListener("click", async () => {
+        if (!recordingSupported()) return;
+        voiceStatus.textContent = "正在请求麦克风权限…";
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mimeType = supportedMimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
+          if (!mimeType) {
+            releaseStream();
+            voiceStatus.textContent = "此浏览器没有可用的本地演示录音格式，请使用文字输入。";
+            return;
+          }
+          recorder = new MediaRecorder(mediaStream, { mimeType });
+          chunks = [];
+          stopMode = "discard";
+          recorder.addEventListener("dataavailable", (event) => { if (event.data.size) chunks.push(event.data); });
+          recorder.addEventListener("stop", () => {
+            const message = stopMode === "cancel"
+              ? "已取消，本地音频已立即丢弃。"
+              : "录音已停止并从本页内存丢弃。静态演示不会转写，请继续用文字填写。";
+            finishDiscard(message);
+          });
+          recorder.addEventListener("error", () => finishDiscard("录音出现问题，本地音频已丢弃。请使用文字输入。"));
+          recorder.start(250);
+          recordingSeconds = 0;
+          voiceDisclosure.hidden = true;
+          voiceRecording.hidden = false;
+          voiceStatus.textContent = "正在本地录音；不上传、不转写。";
+          recordingTimer = window.setInterval(() => {
+            recordingSeconds = Math.min(recordingSeconds + 1, 30);
+            voiceTime.textContent = "0:" + String(recordingSeconds).padStart(2, "0") + " / 0:30";
+          }, 1000);
+          recordingLimit = window.setTimeout(() => {
+            if (recorder && recorder.state === "recording") {
+              stopMode = "discard";
+              recorder.stop();
+            }
+          }, 30000);
+        } catch (error) {
+          releaseStream();
+          voiceStatus.textContent = error && error.name === "NotAllowedError"
+            ? "没有获得麦克风权限。没有录音，可以继续使用文字输入。"
+            : "暂时无法启动麦克风。没有录音，请继续使用文字输入。";
+        }
+      });
+
+      document.getElementById("voice-stop").addEventListener("click", () => {
+        if (recorder && recorder.state === "recording") {
+          stopMode = "discard";
+          recorder.stop();
+        }
+      });
+      document.getElementById("voice-cancel").addEventListener("click", () => discardRecording("已取消，本地音频已立即丢弃。"));
+
+      const speechToggle = document.getElementById("speech-toggle");
+      const speechStop = document.getElementById("speech-stop");
+      const speechStatus = document.getElementById("speech-status");
+      if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+        speechToggle.disabled = true;
+        speechToggle.textContent = "设备不支持朗读";
+      }
+
+      speechToggle.addEventListener("click", () => {
+        if (!("speechSynthesis" in window) || replyPanel.hidden) return;
+        if (speechState === "speaking") {
+          window.speechSynthesis.pause();
+          speechState = "paused";
+          speechToggle.textContent = "继续朗读";
+          speechStatus.textContent = "设备朗读已暂停";
+          return;
+        }
+        if (speechState === "paused") {
+          window.speechSynthesis.resume();
+          speechState = "speaking";
+          speechToggle.textContent = "暂停朗读";
+          speechStatus.textContent = "正在使用设备朗读固定示例";
+          return;
+        }
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(replyText.textContent || "");
+        utterance.lang = "zh-CN";
+        utterance.rate = 0.95;
+        const voice = window.speechSynthesis.getVoices().find((item) => item.lang.toLowerCase().startsWith("zh"));
+        if (voice) utterance.voice = voice;
+        utterance.onend = stopSpeech;
+        utterance.onerror = stopSpeech;
+        window.speechSynthesis.speak(utterance);
+        speechState = "speaking";
+        speechToggle.textContent = "暂停朗读";
+        speechStop.hidden = false;
+        speechStatus.textContent = "正在使用设备朗读固定示例";
+      });
+      speechStop.addEventListener("click", stopSpeech);
+
+      window.addEventListener("pagehide", () => {
+        discardRecording("");
+        stopSpeech();
+        records.length = 0;
+      });
+
+      if (!validViews.has(window.location.hash.replace(/^#/, ""))) window.history.replaceState(null, "", "#student");
+      showView(activeViewFromHash(), false);
+      renderRecords();
+    })();
+  </script>
+</body>
+</html>
+
