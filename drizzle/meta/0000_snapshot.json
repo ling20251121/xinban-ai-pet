@@ -1,0 +1,147 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "59a276b7-a870-4970-a1e6-a2746bdf0a10",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "mood_entries": {
+      "name": "mood_entries",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "participant_hash": {
+          "name": "participant_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "participant_code": {
+          "name": "participant_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mood": {
+          "name": "mood",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mood_score": {
+          "name": "mood_score",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "goal": {
+          "name": "goal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "wants_support": {
+          "name": "wants_support",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "safety_level": {
+          "name": "safety_level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'normal'"
+        },
+        "support_evidence": {
+          "name": "support_evidence",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "idx_mood_entries_participant_created": {
+          "name": "idx_mood_entries_participant_created",
+          "columns": [
+            "participant_hash",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "idx_mood_entries_created": {
+          "name": "idx_mood_entries_created",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "idx_mood_entries_flagged_created": {
+          "name": "idx_mood_entries_flagged_created",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false,
+          "where": "\"mood_entries\".\"wants_support\" = 1 OR \"mood_entries\".\"safety_level\" = 'urgent'"
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mood_entries_score_check": {
+          "name": "mood_entries_score_check",
+          "value": "\"mood_entries\".\"mood_score\" BETWEEN 0 AND 5"
+        },
+        "mood_entries_support_check": {
+          "name": "mood_entries_support_check",
+          "value": "\"mood_entries\".\"wants_support\" IN (0, 1)"
+        },
+        "mood_entries_safety_check": {
+          "name": "mood_entries_safety_check",
+          "value": "\"mood_entries\".\"safety_level\" IN ('normal', 'urgent')"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
