@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>心伴 AI-Pet v1.0.0 · 全栈研究原型</title>
+  <style>
+    :root{--ink:#28324b;--muted:#66708a;--violet:#6759d8;--violet-soft:#eeeafd;--green:#287b68;--paper:#fffdf9;--line:#ddd8ef}
+    *{box-sizing:border-box}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 18% 12%,#eeeafd 0,transparent 34%),linear-gradient(150deg,#fbfaff,#f4fbf8);min-height:100vh}
+    main{width:min(920px,calc(100% - 32px));margin:0 auto;padding:48px 0 64px}.crumb{display:inline-flex;color:var(--violet);font-weight:700;text-decoration:none;margin-bottom:20px}.card{background:rgba(255,253,249,.94);border:1px solid var(--line);border-radius:28px;padding:clamp(24px,5vw,48px);box-shadow:0 24px 70px rgba(61,49,126,.12)}
+    .eyebrow{color:var(--violet);font-weight:800;letter-spacing:.08em}.badge{display:inline-flex;margin-left:8px;padding:6px 10px;border-radius:999px;background:var(--violet-soft);font-size:.82rem}h1{font-size:clamp(2rem,5vw,3.4rem);line-height:1.08;margin:.5rem 0 1rem}.lead{font-size:1.1rem;line-height:1.75;color:var(--muted)}
+    .notice{margin:28px 0;padding:18px 20px;border-radius:18px;background:#fff4e5;border-left:5px solid #d99837;line-height:1.7}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:28px 0}.item{padding:18px;border-radius:18px;background:white;border:1px solid #ebe7f5}.item strong{display:block;margin-bottom:6px}.item span{color:var(--muted);line-height:1.6}
+    .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:15px;text-decoration:none;font-weight:800}.primary{background:var(--violet);color:white}.secondary{border:1px solid var(--line);color:var(--ink);background:white}.foot{margin-top:26px;color:var(--muted);font-size:.92rem;line-height:1.7}@media(max-width:640px){main{padding-top:24px}.grid{grid-template-columns:1fr}.card{border-radius:22px;padding:24px}}
+  </style>
+</head>
+<body>
+  <main>
+    <a class="crumb" href="../../">← 返回版本选择</a>
+    <section class="card">
+      <div class="eyebrow">历史固定版本 <span class="badge">v1.0.0</span></div>
+      <h1>心伴 AI-Pet<br>全栈研究原型</h1>
+      <p class="lead">这是首个具备学生记录、服务端模型适配、D1 持久化和脱敏教师汇总能力的技术原型。它用于说明系统架构与受控研究流程，不代表已经完成未成年人真实试点。</p>
+      <div class="notice"><strong>使用边界：</strong>当前托管入口可能要求 ChatGPT 登录，不适合作为中国学生公开入口。请勿录入真实学生姓名、电话、住址或未获同意的心理与健康信息。</div>
+      <div class="grid" aria-label="版本能力">
+        <div class="item"><strong>学生端</strong><span>每日心情、可选文字与小目标；记录读取、导出和删除。</span></div>
+        <div class="item"><strong>AI 对话</strong><span>服务端可配置 DeepSeek、豆包或 Kimi；未配置时使用安全示例回应。</span></div>
+        <div class="item"><strong>安全边界</strong><span>明确危机表达先由本地规则拦截，不把 AI 当作心理诊断或紧急服务。</span></div>
+        <div class="item"><strong>教师端</strong><span>密钥保护的聚合趋势与最少必要支持线索；普通对话默认不展示。</span></div>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="https://xinban-ai-pet-eitt26.nwowxgckhq45.chatgpt.site/" rel="noopener">打开 v1 托管原型</a>
+        <a class="button secondary" href="../v2.0.0/">查看 v2 安全演示</a>
+      </div>
+      <p class="foot">固定代码节点：4132a13 · 发布日期：2026-08-12 · 数据状态：禁止未经学校审批的真实学生数据。此说明页不会连接或复制 v1 数据库。</p>
+    </section>
+  </main>
+</body>
+</html>

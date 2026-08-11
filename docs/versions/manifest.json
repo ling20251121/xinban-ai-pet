@@ -1,0 +1,22 @@
+{
+  "project": "XinBan AI-Pet",
+  "updatedAt": "2026-08-12",
+  "versions": [
+    {
+      "version": "v1.0.0",
+      "type": "full-stack-research-prototype",
+      "commit": "4132a13ac4e2795e2c476a72270aff6c6470adfd",
+      "fixedPath": "./v1.0.0/",
+      "database": "isolated-d1-v1",
+      "realStudentData": false
+    },
+    {
+      "version": "v2.0.0",
+      "type": "static-privacy-safe-demo",
+      "commit": "e2f2039e80a0e7238a0c826e0f7238d0349ba4df",
+      "fixedPath": "./v2.0.0/",
+      "database": null,
+      "realStudentData": false
+    }
+  ]
+}
