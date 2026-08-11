@@ -23,6 +23,10 @@ type MoodEntry = {
   createdAt: string;
 };
 
+type CompanionState = "idle" | "mood-selected" | "saving" | "responding" | "done" | "urgent";
+type RecordingState = "idle" | "notice" | "requesting" | "recording" | "transcribing" | "review" | "error";
+type SpeechState = "idle" | "speaking" | "paused";
+
 const moodOptions: MoodOption[] = [
   { id: "happy", label: "开心", emoji: "☀️", score: 5, tone: "sun" },
   { id: "calm", label: "平静", emoji: "🍃", score: 4, tone: "leaf" },
@@ -33,11 +37,22 @@ const moodOptions: MoodOption[] = [
 ];
 
 const quickPrompts = ["今天有件小事让我开心", "学习上有点卡住", "和同学相处有点难", "我想先安静一下"];
+const recordingMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg", "audio/mpeg", "audio/wav"];
+
+const moodFeedback: Record<string, string> = {
+  happy: "记下开心也很重要。可以留下一件想记住的小事。",
+  calm: "平静也值得被看见。可以写下让你安稳的一件事。",
+  tense: "紧张常常说明有件事很在意。可以只写最卡住的一点。",
+  sad: "难过时不用急着振作。写一句也可以，或直接找人聊聊。",
+  upset: "先不用把事情全部说清楚。可以从最不舒服的一点开始。",
+  unclear: "说不清也没关系。可以只停在这里，或写下身体现在的感觉。",
+};
 
 const providerNames: Record<string, string> = {
   deepseek: "DeepSeek",
   doubao: "豆包",
   kimi: "Kimi",
+  qwen: "通义千问",
   demo: "安全示例回应",
 };
 
@@ -57,12 +72,22 @@ function csvCell(value: string | number | boolean) {
   return `"${String(value).replaceAll('"', '""')}"`;
 }
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("录音读取失败"));
+    reader.onerror = () => reject(new Error("录音读取失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export default function StudentCompanion() {
   const [participantCode, setParticipantCode] = useState("");
   const [selectedMood, setSelectedMood] = useState<MoodOption | null>(null);
   const [note, setNote] = useState("");
   const [goal, setGoal] = useState("");
   const [wantsSupport, setWantsSupport] = useState(false);
+  const [wantsAi, setWantsAi] = useState(false);
   const [entries, setEntries] = useState<MoodEntry[]>([]);
   const [reply, setReply] = useState("");
   const [provider, setProvider] = useState("");
@@ -72,14 +97,61 @@ export default function StudentCompanion() {
   const [submitting, setSubmitting] = useState<"save" | "ai" | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const crisisRef = useRef<HTMLDivElement>(null);
+  const [companionState, setCompanionState] = useState<CompanionState>("idle");
+  const [recordingState, setRecordingState] = useState<RecordingState>("idle");
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [voiceMessage, setVoiceMessage] = useState("");
+  const [voiceSupported, setVoiceSupported] = useState<boolean | null>(null);
+  const [speechState, setSpeechState] = useState<SpeechState>("idle");
+  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  const replyRef = useRef<HTMLElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<number | null>(null);
+  const recordingLimitRef = useRef<number | null>(null);
+  const stopReasonRef = useRef<"transcribe" | "cancel">("transcribe");
+  const voiceRequestRef = useRef(0);
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
+  const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const validCode = /^[A-Za-z0-9_-]{4,20}$/.test(participantCode.trim());
   const remaining = 600 - note.length;
 
   useEffect(() => {
-    if (urgent) crisisRef.current?.focus();
-  }, [urgent]);
+    const frame = window.requestAnimationFrame(() => {
+      const canRecord = typeof navigator.mediaDevices?.getUserMedia === "function"
+        && typeof window.MediaRecorder === "function"
+        && recordingMimeTypes.some((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+      setVoiceSupported(canRecord);
+      setSpeechSupported(typeof window.speechSynthesis !== "undefined" && typeof window.SpeechSynthesisUtterance === "function");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    if (!reply && !urgent) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (urgent) {
+        replyRef.current?.focus();
+        return;
+      }
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      replyRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [reply, urgent]);
+
+  useEffect(() => () => {
+    voiceRequestRef.current += 1;
+    stopReasonRef.current = "cancel";
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+    if (recordingLimitRef.current !== null) window.clearTimeout(recordingLimitRef.current);
+    transcriptionAbortRef.current?.abort();
+    if (mediaRecorderRef.current?.state !== "inactive") mediaRecorderRef.current?.stop();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    window.speechSynthesis?.cancel();
+  }, []);
 
   const loadHistory = useCallback(async (code = participantCode.trim()) => {
     if (!/^[A-Za-z0-9_-]{4,20}$/.test(code)) {
@@ -104,13 +176,17 @@ export default function StudentCompanion() {
     }
   }, [participantCode]);
 
-  async function submitEntry(event: FormEvent<HTMLFormElement>, withAi: boolean) {
+  async function submitEntry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const withAi = wantsAi;
+    let recordSaved = false;
     setError("");
     setNotice("");
     setReply("");
     setProvider("");
     setUrgent(false);
+    window.speechSynthesis?.cancel();
+    setSpeechState("idle");
 
     const code = participantCode.trim();
     if (!validCode) {
@@ -123,6 +199,7 @@ export default function StudentCompanion() {
     }
 
     setSubmitting(withAi ? "ai" : "save");
+    setCompanionState("saving");
     try {
       const moodResponse = await fetch("/api/moods", {
         method: "POST",
@@ -144,13 +221,16 @@ export default function StudentCompanion() {
       };
       if (!moodResponse.ok) throw new Error(moodData.error || "记录没有保存成功，请重试");
 
-      setNotice("今天的记录已保存。你可以随时查看、导出或删除它。");
+      recordSaved = true;
+      setNotice(withAi ? "今天的记录已保存，正在准备一条可选的 AI 建议。" : "今天的记录已保存。你可以随时查看、导出或删除它。");
       if (moodData.entry) setEntries((current) => [moodData.entry!, ...current.filter((item) => item.id !== moodData.entry!.id)]);
 
       if (moodData.urgent) {
         setUrgent(true);
         setReply(moodData.message || "请现在联系身边可信任的成年人。");
+        setCompanionState("urgent");
       } else if (withAi) {
+        setCompanionState("responding");
         const chatMessage = note.trim() || `我今天的心情是${selectedMood.label}。`;
         const chatResponse = await fetch("/api/chat", {
           method: "POST",
@@ -163,21 +243,263 @@ export default function StudentCompanion() {
           provider?: string;
           error?: string;
         };
-        if (!chatResponse.ok) throw new Error(chatData.error || "小伴暂时没有回应，但你的记录已经保存");
-        setReply(chatData.reply || "谢谢你告诉我。我们可以先从一个很小的下一步开始。");
+        if (!chatResponse.ok) throw new Error(chatData.error || "AI 回应暂时不可用，但你的记录已经保存");
+        setReply(chatData.reply || "谢谢你记录此刻的感受。现在可以先选一个很小、很容易完成的下一步。");
         setProvider(chatData.provider || "demo");
         setUrgent(Boolean(chatData.urgent));
+        setCompanionState(chatData.urgent ? "urgent" : "done");
+        setNotice("记录已保存。下面是一条可选的 AI 建议，你可以按自己的情况决定是否采用。");
+      } else {
+        setCompanionState("done");
       }
 
       setNote("");
       setGoal("");
       setWantsSupport(false);
-      setHistoryOpen(true);
+      setWantsAi(false);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "暂时无法提交，请稍后重试");
+      if (recordSaved) {
+        setError("记录已经保存，但 AI 回应暂时不可用。你仍然可以查看记录或找现实中的人聊聊。");
+        setCompanionState("done");
+      } else {
+        setError(submitError instanceof Error ? submitError.message : "暂时无法提交，请稍后重试");
+        setCompanionState(selectedMood ? "mood-selected" : "idle");
+      }
     } finally {
       setSubmitting(null);
     }
+  }
+
+  function chooseMood(mood: MoodOption) {
+    setSelectedMood(mood);
+    setCompanionState("mood-selected");
+    setError("");
+    setNotice("");
+  }
+
+  function appendPrompt(prompt: string) {
+    setNote((current) => current.trim() ? `${current.trimEnd()}\n${prompt}`.slice(0, 600) : prompt);
+    if (selectedMood) setCompanionState("mood-selected");
+  }
+
+  function clearRecordingTimers() {
+    if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
+    if (recordingLimitRef.current !== null) window.clearTimeout(recordingLimitRef.current);
+    recordingTimerRef.current = null;
+    recordingLimitRef.current = null;
+  }
+
+  function releaseMicrophone() {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+  }
+
+  async function transcribeRecording(blob: Blob, mimeType: string) {
+    if (!blob.size) {
+      setRecordingState("error");
+      setVoiceMessage("没有收到可转写的声音。音频未保存，请重试或改用文字输入。");
+      return;
+    }
+    if (blob.size > 2_500_000) {
+      audioChunksRef.current = [];
+      setRecordingState("error");
+      setVoiceMessage("录音文件超过 2.5 MB，未上传也未保存。请缩短录音或改用文字输入。");
+      return;
+    }
+
+    setRecordingState("transcribing");
+    setVoiceMessage("正在转成文字；完成前不会保存这段音频。");
+    const controller = new AbortController();
+    transcriptionAbortRef.current = controller;
+
+    try {
+      const dataUrl = await blobToDataUrl(blob);
+      const response = await fetch("/api/voice/transcribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dataUrl, mimeType }),
+        signal: controller.signal,
+      });
+      const data = (await response.json()) as {
+        text?: string;
+        transcript?: string;
+        urgent?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        if (response.status === 503) {
+          throw new Error("语音转写服务暂未配置。音频没有保存，请继续使用文字输入。");
+        }
+        throw new Error(data.error || "语音暂时无法转成文字。音频没有保存。");
+      }
+
+      const transcript = (data.text || data.transcript || "").trim();
+      if (!transcript) throw new Error("没有识别到清楚的文字。音频没有保存，可以重试或直接输入。");
+      setNote((current) => [current.trim(), transcript].filter(Boolean).join("\n").slice(0, 600));
+      setRecordingState("review");
+      if (data.urgent) {
+        setUrgent(true);
+        setProvider("");
+        setReply(data.message || "请现在联系身边可信任的成年人。若你或别人正面临立即危险，请拨打 110 或 120。");
+        setCompanionState("urgent");
+        setVoiceMessage("已转成可编辑文字，音频已丢弃。内容中出现了需要立刻让真人确认的安全信号；文字尚未自动保存，请现在先联系身边可信任的大人。");
+      } else {
+        setVoiceMessage("已转成可编辑文字，音频已丢弃。请检查内容，再决定是否保存。");
+        if (selectedMood) setCompanionState("mood-selected");
+      }
+    } catch (voiceError) {
+      if (voiceError instanceof DOMException && voiceError.name === "AbortError") return;
+      setRecordingState("error");
+      setVoiceMessage(voiceError instanceof Error ? voiceError.message : "语音转写失败。音频没有保存，请改用文字输入。");
+    } finally {
+      audioChunksRef.current = [];
+      if (transcriptionAbortRef.current === controller) transcriptionAbortRef.current = null;
+    }
+  }
+
+  async function startVoiceRecording() {
+    setVoiceMessage("");
+    if (!voiceSupported || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setRecordingState("error");
+      setVoiceMessage("此设备暂不支持安全录音，请继续使用文字输入。");
+      return;
+    }
+
+    const requestId = ++voiceRequestRef.current;
+    setRecordingState("requesting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (requestId !== voiceRequestRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      mediaStreamRef.current = stream;
+      const mimeType = recordingMimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+      if (!mimeType) {
+        releaseMicrophone();
+        setRecordingState("error");
+        setVoiceMessage("此浏览器不能生成学校转写服务支持的录音格式。音频未保存，请继续使用文字输入。");
+        return;
+      }
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      stopReasonRef.current = "transcribe";
+
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size) audioChunksRef.current.push(event.data);
+      });
+      recorder.addEventListener("error", () => {
+        clearRecordingTimers();
+        releaseMicrophone();
+        audioChunksRef.current = [];
+        setRecordingState("error");
+        setVoiceMessage("录音出现问题，音频没有保存。请重试或改用文字输入。");
+      });
+      recorder.addEventListener("stop", () => {
+        clearRecordingTimers();
+        releaseMicrophone();
+        mediaRecorderRef.current = null;
+        const chunks = audioChunksRef.current;
+        const resolvedMime = recorder.mimeType || chunks[0]?.type || "audio/webm";
+        const blob = new Blob(chunks, { type: resolvedMime });
+        if (stopReasonRef.current === "cancel") {
+          audioChunksRef.current = [];
+          setRecordingState("idle");
+          setVoiceMessage("已取消录音，音频没有保存。");
+          return;
+        }
+        void transcribeRecording(blob, resolvedMime);
+      });
+
+      recorder.start(250);
+      setRecordingSeconds(0);
+      setRecordingState("recording");
+      setVoiceMessage("正在录音，最多 30 秒。可以随时停止或取消。");
+      recordingTimerRef.current = window.setInterval(() => {
+        setRecordingSeconds((current) => Math.min(current + 1, 30));
+      }, 1000);
+      recordingLimitRef.current = window.setTimeout(() => {
+        if (recorder.state !== "inactive") {
+          stopReasonRef.current = "transcribe";
+          recorder.stop();
+        }
+      }, 30_000);
+    } catch (permissionError) {
+      if (requestId !== voiceRequestRef.current) return;
+      clearRecordingTimers();
+      releaseMicrophone();
+      setRecordingState("error");
+      setVoiceMessage(permissionError instanceof DOMException && permissionError.name === "NotAllowedError"
+        ? "没有获得麦克风权限。你可以继续打字，或在浏览器设置中稍后开启。"
+        : "暂时无法启动麦克风，请继续使用文字输入。");
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (mediaRecorderRef.current?.state === "recording") {
+      stopReasonRef.current = "transcribe";
+      mediaRecorderRef.current.stop();
+    }
+  }
+
+  function cancelVoiceRecording() {
+    voiceRequestRef.current += 1;
+    stopReasonRef.current = "cancel";
+    transcriptionAbortRef.current?.abort();
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+      return;
+    }
+    clearRecordingTimers();
+    releaseMicrophone();
+    audioChunksRef.current = [];
+    setRecordingState("idle");
+    setVoiceMessage("已取消，音频没有保存。");
+  }
+
+  function toggleSpeech() {
+    if (!speechSupported || !reply || urgent) return;
+    if (speechState === "speaking") {
+      window.speechSynthesis.pause();
+      setSpeechState("paused");
+      return;
+    }
+    if (speechState === "paused") {
+      window.speechSynthesis.resume();
+      setSpeechState("speaking");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(reply);
+    const chineseVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("zh"));
+    if (chineseVoice) utterance.voice = chineseVoice;
+    utterance.lang = "zh-CN";
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.onend = () => setSpeechState("idle");
+    utterance.onerror = () => setSpeechState("idle");
+    speechUtteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+    setSpeechState("speaking");
+  }
+
+  function stopSpeech() {
+    window.speechSynthesis?.cancel();
+    speechUtteranceRef.current = null;
+    setSpeechState("idle");
+  }
+
+  function finishSession() {
+    stopSpeech();
+    setReply("");
+    setProvider("");
+    setNotice("今天先记到这里就好。记录已经保存，你不必马上解决全部。");
+    setCompanionState("done");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById("today")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
   }
 
   async function deleteMyRecords() {
@@ -222,14 +544,26 @@ export default function StudentCompanion() {
     URL.revokeObjectURL(url);
   }
 
-  const weeklyAverage = useMemo(() => {
-    const scored = entries.filter((entry) => entry.moodScore > 0).slice(0, 7);
-    if (!scored.length) return null;
-    return scored.reduce((sum, entry) => sum + entry.moodScore, 0) / scored.length;
+  const weekSummary = useMemo(() => {
+    const recent = entries.slice(0, 7);
+    const days = new Set(recent.map((entry) => new Date(entry.createdAt).toLocaleDateString("zh-CN"))).size;
+    return { recent, days };
   }, [entries]);
 
+  const companionStatus: Record<CompanionState, string> = {
+    idle: "AI 回应可选",
+    "mood-selected": "已记下这份心情",
+    saving: "正在安全保存",
+    responding: "正在整理文字",
+    done: "今天的记录已完成",
+    urgent: "现在先联系真人",
+  };
+  const voiceBusy = recordingState === "requesting" || recordingState === "recording" || recordingState === "transcribing";
+  const recordingTime = `0:${String(recordingSeconds).padStart(2, "0")} / 0:30`;
+
   return (
-    <div className="site-shell">
+    <div className="site-shell" data-state={companionState} data-mood={selectedMood?.tone || "none"}>
+      <a className="skip-link" href="#today">跳到今天的心情记录</a>
       <header className="topbar">
         <Link className="brand" href="/" aria-label="心伴 AI-Pet 首页">
           <span className="brand-mark" aria-hidden="true">心</span>
@@ -239,10 +573,10 @@ export default function StudentCompanion() {
           </span>
         </Link>
         <nav className="topnav" aria-label="主导航">
-          <a href="#today" aria-current="page">今天</a>
-          <button type="button" className="nav-button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>我的记录</button>
-          <a href="#help">找人聊聊</a>
-          <Link href="/teacher">教师端</Link>
+          <a className="nav-today" href="#today" aria-current="page">今天</a>
+          <button type="button" className="nav-button nav-records" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>我的记录</button>
+          <a className="nav-help" href="#help">找真人</a>
+          <Link className="nav-teacher" href="/teacher">教师端</Link>
         </nav>
       </header>
 
@@ -261,30 +595,33 @@ export default function StudentCompanion() {
                 <small>不使用姓名、学号或手机号</small>
               </div>
             </div>
-            <label className="code-field">
+            <label className="code-field" htmlFor="participant-code">
               <span className="sr-only">学校发放的匿名编号</span>
               <input
+                id="participant-code"
                 value={participantCode}
                 onChange={(event) => setParticipantCode(event.target.value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20))}
                 placeholder="例如 XB-042"
                 autoComplete="off"
                 inputMode="text"
+                aria-invalid={participantCode.length > 0 && !validCode}
+                aria-describedby="participant-code-help"
               />
               <button type="button" onClick={() => void loadHistory()} disabled={loadingHistory || !participantCode}>
                 {loadingHistory ? "读取中…" : "查看记录"}
               </button>
             </label>
-            <p><span aria-hidden="true">🔒</span> 编号由学校单独发放，真实姓名不会发送给模型。</p>
+            <p id="participant-code-help"><span aria-hidden="true">🔒</span> 编号由学校单独发放，真实姓名不会发送给模型。</p>
           </div>
         </section>
 
         <section id="today" className="workspace" aria-labelledby="today-title">
           <aside className="companion-card">
             <div className="pet-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
-            <Image src="/dog.svg" alt="微笑的小狗伙伴小伴" className="pet-image" width={190} height={190} priority />
-            <div className="online-pill"><span></span> 小伴在这里</div>
-            <h2>嗨，我是小伴</h2>
-            <p>我可以陪你整理心情和下一步，但我不是真人，也可能理解错。</p>
+            <Image key={selectedMood?.id || "idle"} src="/dog.svg" alt="AI 心情伙伴小伴" className="pet-image" width={190} height={190} priority />
+            <div className="online-pill" role="status" aria-live="polite"><span></span> {companionStatus[companionState]}</div>
+            <h2>我是 AI 小伴</h2>
+            <p>可以帮你把今天理清一点，但我不是真人，也可能理解错。</p>
             <div className="pet-boundary">
               <strong>我会做的</strong>
               <span>先听你说 · 把困难拆小 · 提醒你找可信任的人</span>
@@ -292,7 +629,7 @@ export default function StudentCompanion() {
             <div className="reality-note">AI 生成 · 不是诊断或紧急服务</div>
           </aside>
 
-          <form className="checkin-card" onSubmit={(event) => void submitEntry(event, false)}>
+          <form className="checkin-card" onSubmit={(event) => void submitEntry(event)} aria-busy={Boolean(submitting)}>
             <div className="card-heading">
               <div>
                 <span className="step-label">STEP 02</span>
@@ -301,38 +638,126 @@ export default function StudentCompanion() {
               <span className="optional-badge">没有对错</span>
             </div>
 
-            <div className="mood-grid" role="radiogroup" aria-label="选择今天的心情">
+            <div className="mood-grid" role="radiogroup" aria-label="选择今天的心情" aria-describedby={selectedMood ? "mood-feedback" : undefined}>
               {moodOptions.map((mood) => (
-                <button
+                <label
                   key={mood.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selectedMood?.id === mood.id}
                   className={`mood-option mood-${mood.tone}${selectedMood?.id === mood.id ? " selected" : ""}`}
-                  onClick={() => setSelectedMood(mood)}
                 >
+                  <input
+                    className="sr-only"
+                    type="radio"
+                    name="mood"
+                    value={mood.id}
+                    checked={selectedMood?.id === mood.id}
+                    onChange={() => chooseMood(mood)}
+                  />
                   <span aria-hidden="true">{mood.emoji}</span>
                   <strong>{mood.label}</strong>
-                </button>
+                </label>
               ))}
             </div>
+
+            {selectedMood && (
+              <p key={selectedMood.id} id="mood-feedback" className="mood-feedback" role="status" aria-live="polite">
+                <strong>{selectedMood.label}</strong>
+                <span>{moodFeedback[selectedMood.id]}</span>
+              </p>
+            )}
 
             <div className="prompt-row" aria-label="可以点选一个开头">
               {quickPrompts.map((prompt) => (
-                <button key={prompt} type="button" onClick={() => setNote(prompt)}>{prompt}</button>
+                <button key={prompt} type="button" onClick={() => appendPrompt(prompt)}>{prompt}</button>
               ))}
             </div>
 
-            <label className="field-group">
-              <span>今天最想记下什么？ <small>可不填</small></span>
+            <div className="field-group">
+              <div className="field-label-row">
+                <label htmlFor="daily-note">今天最想记下什么？ <small>可不填</small></label>
+                <button
+                  className="voice-trigger"
+                  type="button"
+                  disabled={voiceSupported !== true || voiceBusy || Boolean(submitting)}
+                  aria-expanded={recordingState !== "idle"}
+                  aria-controls="voice-panel"
+                  onClick={() => {
+                    setVoiceMessage("");
+                    setRecordingState("notice");
+                  }}
+                >
+                  {voiceSupported === null ? "正在检查语音…" : voiceSupported ? "语音输入" : "设备不支持录音"}
+                </button>
+              </div>
               <textarea
+                id="daily-note"
                 value={note}
-                onChange={(event) => setNote(event.target.value.slice(0, 600))}
+                onChange={(event) => {
+                  setNote(event.target.value.slice(0, 600));
+                  if (selectedMood) setCompanionState("mood-selected");
+                }}
                 placeholder="比如：数学最后一道题有点难，我有些着急……"
                 rows={4}
+                aria-describedby={(recordingState !== "idle" || voiceMessage || voiceSupported === false) ? "note-help voice-status" : "note-help"}
               />
-              <small className={remaining < 60 ? "count warning" : "count"}>请不要写姓名、电话或住址 · 还可写 {remaining} 字</small>
-            </label>
+              <small id="note-help" className={remaining < 60 ? "count warning" : "count"}>请不要写姓名、电话或住址 · 还可写 {remaining} 字</small>
+
+              {(recordingState !== "idle" || voiceMessage || voiceSupported === false) && (
+                <div id="voice-panel" className={`voice-panel state-${recordingState}`}>
+                  {recordingState === "notice" && (
+                    <div className="voice-disclosure" role="note">
+                      <strong>开始前请确认</strong>
+                      <p>最多录 30 秒、文件不超过 2.5MB（优先使用压缩录音格式）。确认后才会把音频发送给学校配置的阿里云百炼北京语音转写服务；转成文字后立即丢弃音频。请先检查文字，再决定是否保存。</p>
+                      <div className="voice-actions">
+                        <button type="button" className="voice-primary" onClick={() => void startVoiceRecording()}>我知道了，开始录音</button>
+                        <button type="button" onClick={cancelVoiceRecording}>暂不使用</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {recordingState === "requesting" && (
+                    <div className="voice-progress" role="status">
+                      <span className="recording-dot" aria-hidden="true"></span>
+                      <strong>正在请求麦克风权限…</strong>
+                      <button type="button" onClick={cancelVoiceRecording}>取消</button>
+                    </div>
+                  )}
+
+                  {recordingState === "recording" && (
+                    <div className="voice-progress recording" role="status" aria-live="polite">
+                      <span className="recording-dot" aria-hidden="true"></span>
+                      <strong>正在录音</strong>
+                      <time>{recordingTime}</time>
+                      <div className="voice-actions">
+                        <button type="button" className="voice-primary" onClick={stopVoiceRecording}>停止并转成文字</button>
+                        <button type="button" onClick={cancelVoiceRecording}>取消并删除</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {recordingState === "transcribing" && (
+                    <div className="voice-progress" role="status" aria-live="polite">
+                      <span className="recording-dot" aria-hidden="true"></span>
+                      <strong>正在转成文字…</strong>
+                      <button type="button" onClick={cancelVoiceRecording}>取消</button>
+                    </div>
+                  )}
+
+                  {(recordingState === "review" || recordingState === "error") && (
+                    <div className="voice-result" role={recordingState === "error" ? "alert" : "status"}>
+                      <strong>{recordingState === "review" ? "请检查上面的文字" : "语音输入没有完成"}</strong>
+                      <div className="voice-actions">
+                        <button type="button" onClick={() => { setVoiceMessage(""); setRecordingState("notice"); }}>再次语音输入</button>
+                        <button type="button" onClick={() => { setRecordingState("idle"); setVoiceMessage(""); }}>关闭提示</button>
+                      </div>
+                    </div>
+                  )}
+
+                  <p id="voice-status" className="voice-message" role="status" aria-live="polite">
+                    {voiceSupported === false ? "此设备暂不支持安全录音，请继续使用文字输入。" : voiceMessage}
+                  </p>
+                </div>
+              )}
+            </div>
 
             <label className="field-group goal-field">
               <span>给今天一个小小的下一步 <small>可不填</small></span>
@@ -343,52 +768,52 @@ export default function StudentCompanion() {
               />
             </label>
 
-            <label className="support-toggle" htmlFor="wants-support" aria-label="请求老师或学校支持人员联系我">
-              <input id="wants-support" type="checkbox" checked={wantsSupport} onChange={(event) => setWantsSupport(event.target.checked)} />
+            <label className="support-toggle" htmlFor="wants-support" aria-label="我想找老师或支持人员聊聊">
+              <input id="wants-support" type="checkbox" checked={wantsSupport} aria-describedby="support-share-help" onChange={(event) => setWantsSupport(event.target.checked)} />
               <span className="toggle-box" aria-hidden="true"></span>
               <span>
                 <strong>我想找老师或支持人员聊聊</strong>
-                <small>只有你主动请求或出现明确安全风险时，才会共享最少必要信息。</small>
+                <small id="support-share-help">只有你主动请求或出现明确安全风险时，才会共享最少必要信息。</small>
+              </span>
+            </label>
+
+            <label className="support-toggle ai-choice" htmlFor="wants-ai" aria-label="我也想要一条可选的 AI 建议">
+              <input id="wants-ai" type="checkbox" checked={wantsAi} aria-describedby="ai-share-help" onChange={(event) => setWantsAi(event.target.checked)} />
+              <span className="toggle-box" aria-hidden="true"></span>
+              <span>
+                <strong>我也想要一条可选的 AI 建议</strong>
+                <small id="ai-share-help">默认关闭。开启后，本次记录文字会临时发送给学校配置的模型；AI 回复不保存。</small>
               </span>
             </label>
 
             {(error || notice) && (
-              <div className={error ? "form-message error" : "form-message success"} role={error ? "alert" : "status"}>
+              <div id="form-message" className={error ? "form-message error" : "form-message success"} role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"}>
                 {error || notice}
               </div>
             )}
 
             <div className="form-actions">
-              <button className="secondary-action" type="submit" disabled={Boolean(submitting)}>
-                {submitting === "save" ? "正在保存…" : "仅保存记录"}
-              </button>
-              <button
-                className="primary-action"
-                type="button"
-                disabled={Boolean(submitting)}
-                onClick={(event) => void submitEntry(event as unknown as FormEvent<HTMLFormElement>, true)}
-              >
-                {submitting === "ai" ? "小伴正在想…" : "保存并请小伴回应"}
-                <span aria-hidden="true">↗</span>
+              <button className="primary-action save-action" type="submit" disabled={Boolean(submitting) || voiceBusy}>
+                {submitting ? (companionState === "responding" ? "正在整理你写的内容…" : "正在安全保存…") : (wantsAi ? "保存记录并获取 AI 建议" : "保存今天的记录")}
+                <span aria-hidden="true">✓</span>
               </button>
             </div>
-            <p className="consent-copy">选择“小伴回应”后，本次文字会去标识化发送给学校配置的模型；对话默认不保存。</p>
+            <p className="consent-copy">记录框文字会随本次心情记录保存。{wantsAi ? "本次还会临时发送给学校配置的模型，AI 回复不保存。" : "目前不会发送给模型。"}</p>
           </form>
 
           <aside className="side-stack">
             <section className="insight-card">
-              <span className="step-label">MY WEEK</span>
-              <h2>我的一周</h2>
-              <div className="week-visual" aria-label={weeklyAverage ? `最近记录平均心情 ${weeklyAverage.toFixed(1)} 分` : "还没有一周记录"}>
-                <div className="week-score"><strong>{weeklyAverage ? weeklyAverage.toFixed(1) : "—"}</strong><small>/ 5</small></div>
-                <div className="mini-bars" aria-hidden="true">
-                  {(entries.length ? entries.slice(0, 7).reverse() : [1, 2, 3, 2, 4, 3, 1]).map((entry, index) => {
-                    const score = typeof entry === "number" ? entry : Math.max(entry.moodScore, 1);
-                    return <span key={typeof entry === "number" ? index : entry.id} style={{ height: `${20 + score * 10}%` }}></span>;
-                  })}
+              <span className="step-label">RECENT CHECK-INS</span>
+              <h2>最近记录</h2>
+              <div className="week-visual" aria-label={weekSummary.days ? `最近七条记录来自 ${weekSummary.days} 天` : "还没有记录"}>
+                <div className="week-count"><strong>{weekSummary.days ? `${weekSummary.days} 天` : "暂无"}</strong><small>最近 7 条记录</small></div>
+                <div className={weekSummary.recent.length ? "week-moods" : "week-moods empty"} aria-hidden="true">
+                  {weekSummary.recent.length ? weekSummary.recent.slice().reverse().map((entry) => (
+                    <span key={entry.id}>{moodOptions.find((mood) => mood.label === entry.mood)?.emoji || "○"}</span>
+                  )) : <span>尚无记录</span>}
                 </div>
               </div>
-              <p>{entries.length ? `已读取 ${entries.length} 条记录。趋势帮助你回看，不代表心理评分。` : "输入匿名编号后，可以在这里回看自己的记录。"}</p>
+              <p>{entries.length ? `已读取 ${entries.length} 条记录。这里只帮助回看，不计算情绪分数。` : "输入匿名编号后，可以在这里回看自己的记录。"}</p>
               <button type="button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>查看我的记录 <span aria-hidden="true">→</span></button>
             </section>
 
@@ -402,12 +827,21 @@ export default function StudentCompanion() {
           </aside>
         </section>
 
+        {reply && !urgent && <p className="sr-only" role="status" aria-live="polite">AI 建议已准备好。{reply}</p>}
         {(reply || urgent) && (
-          <section className={urgent ? "reply-section urgent" : "reply-section"} aria-labelledby="reply-title" ref={crisisRef} tabIndex={-1}>
+          <section
+            className={urgent ? "reply-section urgent" : "reply-section"}
+            aria-labelledby="reply-title"
+            aria-live={urgent ? "assertive" : undefined}
+            aria-atomic={urgent ? "true" : undefined}
+            role={urgent ? "alert" : "region"}
+            ref={replyRef}
+            tabIndex={urgent ? -1 : undefined}
+          >
             <div className="reply-avatar"><Image src="/dog.svg" alt="" width={68} height={68} /></div>
             <div className="reply-body">
               <div className="reply-meta">
-                <h2 id="reply-title">{urgent ? "现在先保证安全" : "小伴的回应"}</h2>
+                <h2 id="reply-title">{urgent ? "现在先保证安全" : "一条可选的 AI 建议"}</h2>
                 <span>{urgent ? "本地安全提示" : `${providerNames[provider] || "AI"} · AI 生成，可能有误`}</span>
               </div>
               <p>{reply}</p>
@@ -417,10 +851,37 @@ export default function StudentCompanion() {
                   <a href="tel:120">立即拨打 120</a>
                   <a href="#help">找可信任的大人</a>
                 </div>
-              ) : (
-                <p className="reply-nudge">如果愿意，可以把这个小步骤告诉一位你信任的老师、家长或同学。</p>
-              )}
+              ) : <p className="reply-nudge">这只是一条建议。可以采用、修改或忽略，也可以把小步骤告诉一位信任的老师、家长或同学。</p>}
               {urgent && <small>本研究原型尚不能保证自动通知老师。请你现在主动联系身边可信任的成年人。</small>}
+              {!urgent && (
+                <>
+                  <div className="speech-controls" aria-label="设备朗读控制">
+                    <button
+                      type="button"
+                      disabled={speechSupported !== true}
+                      aria-pressed={speechState !== "idle"}
+                      onClick={toggleSpeech}
+                    >
+                      {speechSupported === false && "此设备不支持朗读"}
+                      {speechSupported === null && "正在检查朗读…"}
+                      {speechSupported && speechState === "idle" && "使用设备朗读"}
+                      {speechSupported && speechState === "speaking" && "暂停朗读"}
+                      {speechSupported && speechState === "paused" && "继续朗读"}
+                    </button>
+                    {speechState !== "idle" && <button type="button" onClick={stopSpeech}>停止</button>}
+                    <span className="sr-only" role="status" aria-live="polite">
+                      {speechState === "speaking" ? "正在使用设备朗读 AI 建议" : speechState === "paused" ? "设备朗读已暂停" : "设备朗读已停止"}
+                    </span>
+                  </div>
+                  <div className="reply-closure">
+                    <p><strong>今天先记到这里就好。</strong>你不必马上解决全部，需要时可以让现实中的人一起帮忙。</p>
+                    <div>
+                      <button type="button" onClick={finishSession}>完成今天记录</button>
+                      <a href="#help">找现实中的人</a>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </section>
         )}
@@ -462,7 +923,7 @@ export default function StudentCompanion() {
           <div>
             <span className="step-label">REAL PEOPLE, REAL SUPPORT</span>
             <h2 id="support-title">有些事，不需要一个人扛。</h2>
-            <p>小伴可以陪你理一理，但真正的支持来自现实中的人。你可以从最容易联系的一位开始。</p>
+            <p>AI 小伴可以帮你理一理，但真正的支持来自现实中的人。你可以从最容易联系的一位开始。</p>
           </div>
           <div className="support-options">
             <article><span aria-hidden="true">师</span><div><strong>学校里的可信任老师</strong><p>班主任、心理教师或学校指定的支持人员</p></div></article>

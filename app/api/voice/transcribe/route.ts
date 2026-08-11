@@ -1,0 +1,44 @@
+import {
+  ensureSameOrigin,
+  handleApiError,
+  jsonResponse,
+  readJsonBody,
+} from "@/lib/http";
+import {
+  MAX_VOICE_REQUEST_BYTES,
+  parseVoicePayload,
+  transcribeWithQwen,
+} from "@/lib/voice";
+import { analyzeSafety, CRISIS_REPLY } from "@/lib/safety";
+import {
+  reserveVoiceRequest,
+  type VoiceRequestLease,
+} from "@/lib/voice-rate-limit";
+
+export async function POST(request: Request): Promise<Response> {
+  let lease: VoiceRequestLease | undefined;
+  try {
+    ensureSameOrigin(request);
+    lease = reserveVoiceRequest(request);
+    const payload = await readJsonBody<unknown>(
+      request,
+      MAX_VOICE_REQUEST_BYTES,
+    );
+    const audio = parseVoicePayload(payload);
+    const text = await transcribeWithQwen(audio, () =>
+      lease?.claimFingerprint(audio.fingerprint),
+    );
+    const safety = analyzeSafety(text);
+
+    // The audio exists only in request-local memory and is never persisted.
+    return jsonResponse({
+      text,
+      urgent: safety.urgent,
+      ...(safety.urgent ? { message: CRISIS_REPLY } : {}),
+    });
+  } catch (error) {
+    return handleApiError(error);
+  } finally {
+    lease?.release();
+  }
+}

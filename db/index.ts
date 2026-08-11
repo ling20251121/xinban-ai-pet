@@ -5,6 +5,11 @@ import * as schema from "./schema";
 export interface RuntimeEnv {
   DB?: D1Database;
   AI_PROVIDER?: string;
+  QWEN_API_KEY?: string;
+  DASHSCOPE_API_KEY?: string;
+  QWEN_BASE_URL?: string;
+  QWEN_MODEL?: string;
+  QWEN_ASR_MODEL?: string;
   DEEPSEEK_API_KEY?: string;
   DEEPSEEK_BASE_URL?: string;
   DEEPSEEK_MODEL?: string;

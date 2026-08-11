@@ -1,6 +1,7 @@
 import { getRuntimeEnv, type RuntimeEnv } from "@/db";
+import { resolveQwenConfig } from "@/lib/qwen";
 
-export type ProviderName = "deepseek" | "doubao" | "kimi";
+export type ProviderName = "qwen" | "deepseek" | "doubao" | "kimi";
 export type ChatProvider = ProviderName | "demo";
 
 interface ProviderDefinition {
@@ -18,7 +19,10 @@ interface ProviderConfig {
   model: string;
 }
 
-const PROVIDERS: Record<ProviderName, ProviderDefinition> = {
+const PROVIDERS: Record<
+  Exclude<ProviderName, "qwen">,
+  ProviderDefinition
+> = {
   deepseek: {
     defaultBaseUrl: "https://api.deepseek.com",
     allowedBaseUrls: [
@@ -45,9 +49,10 @@ const PROVIDERS: Record<ProviderName, ProviderDefinition> = {
   },
 };
 
-const SYSTEM_PROMPT = `你是面向中国中小学生的 AI 心情伙伴“心伴”。
-用温暖、尊重、适龄的简体中文回应，通常不超过 160 个汉字，并最多问一个容易回答的小问题。
-先接住情绪，再给一个今天就能做的小步骤。不要诊断疾病，不要说教、羞辱或承诺保密，不要索取姓名、学校、电话、住址等身份信息。
+const SYSTEM_PROMPT = `你是面向中国中小学生的 AI 心情整理助手“心伴”。
+用温暖、尊重、适龄的简体中文给一次性回应，通常 60–120 个汉字，最多三句、最多一个容易回答的小问题。
+按“接住一句／一个今天能做的小步骤／连接现实支持”组织。不要诊断疾病，不要说教、羞辱或承诺保密，不要索取姓名、学校、电话、住址等身份信息。
+不要说“我永远陪你”“只有我懂你”“别告诉别人”“我会等你”等制造依赖或排斥真人关系的话，也不要因为学生结束会话而表达难过。
 你不是老师、医生或心理治疗师。若内容涉及人身安全、自伤、他伤或虐待，明确建议学生立刻联系身边可信任的大人；有即时危险时联系 110 或 120。不要提供任何伤害方法或规避成年人帮助的建议。`;
 
 function normalizeBaseUrl(value: string): string | null {
@@ -71,9 +76,13 @@ function normalizeBaseUrl(value: string): string | null {
 function resolveProvider(): ProviderConfig | null {
   const runtime = getRuntimeEnv();
   const requested = runtime.AI_PROVIDER?.trim().toLowerCase();
+  if (requested === "qwen") {
+    const qwen = resolveQwenConfig("chat");
+    return qwen ? { provider: "qwen", ...qwen } : null;
+  }
   if (!requested || !(requested in PROVIDERS)) return null;
 
-  const provider = requested as ProviderName;
+  const provider = requested as keyof typeof PROVIDERS;
   const definition = PROVIDERS[provider];
   const apiKey = definition.getApiKey(runtime)?.trim() ?? "";
   const model = definition.getModel(runtime)?.trim() ?? "";
@@ -140,7 +149,7 @@ function extractReply(payload: unknown): string | null {
 
   const cleaned = reply.replaceAll(String.fromCharCode(0), "").trim();
   if (!cleaned) return null;
-  return Array.from(cleaned).slice(0, 800).join("");
+  return Array.from(cleaned).slice(0, 240).join("");
 }
 
 export interface CompanionReply {
@@ -180,6 +189,7 @@ export async function getCompanionReply(
         max_tokens: 260,
         temperature: 0.6,
         stream: false,
+        ...(config.provider === "qwen" ? { enable_thinking: false } : {}),
       }),
       redirect: "error",
       signal: controller.signal,
