@@ -17,6 +17,15 @@
       "fixedPath": "./v2.0.0/",
       "database": null,
       "realStudentData": false
+    },
+    {
+      "version": "v3.0.0",
+      "type": "caring-voice-research-prototype",
+      "commit": "87ecf0df3c120d33b1be7e847dafe9792d159b59",
+      "fixedPath": "./v3.0.0/",
+      "database": "isolated-d1-v3",
+      "liveModelKeyIncluded": false,
+      "realStudentData": false
     }
   ]
 }

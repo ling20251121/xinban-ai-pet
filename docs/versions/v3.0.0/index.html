@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v3.0.0 灵动语音研究原型的固定版本说明">
+  <title>心伴 AI-Pet v3.0.0 · 灵动语音研究原型</title>
+  <style>
+    :root{--ink:#28324b;--muted:#66708a;--violet:#6759d8;--green:#287b68;--gold:#d5962d;--gold-soft:#fff3d9;--paper:#fffdf9;--line:#ddd8ef}
+    *{box-sizing:border-box}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 18% 12%,#eeeafd 0,transparent 34%),radial-gradient(circle at 88% 18%,#fff1cc 0,transparent 30%),linear-gradient(150deg,#fbfaff,#f4fbf8);min-height:100vh}
+    main{width:min(960px,calc(100% - 32px));margin:0 auto;padding:48px 0 64px}.crumb{display:inline-flex;color:var(--violet);font-weight:800;text-decoration:none;margin-bottom:20px}.card{background:rgba(255,253,249,.95);border:1px solid var(--line);border-radius:28px;padding:clamp(24px,5vw,48px);box-shadow:0 24px 70px rgba(61,49,126,.12)}
+    .eyebrow{color:#8a5b0c;font-weight:900;letter-spacing:.08em}.badge{display:inline-flex;margin-left:8px;padding:6px 10px;border-radius:999px;background:var(--gold-soft);font-size:.82rem}h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.08;margin:.5rem 0 1rem}.lead{font-size:1.1rem;line-height:1.8;color:var(--muted)}
+    .notice{margin:28px 0;padding:18px 20px;border-radius:18px;background:#fff4e5;border-left:5px solid var(--gold);line-height:1.75}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:28px 0}.item{padding:18px;border-radius:18px;background:white;border:1px solid #ebe7f5}.item strong{display:block;margin-bottom:6px}.item span{color:var(--muted);line-height:1.65}
+    .checks{padding:20px;border-radius:18px;background:#eaf7f2}.checks strong{color:var(--green)}.checks p{margin:.55rem 0 0;line-height:1.7}.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:15px;text-decoration:none;font-weight:900}.primary{background:var(--gold);color:#21180a}.secondary{border:1px solid var(--line);color:var(--ink);background:white}.button:focus-visible{outline:3px solid var(--violet);outline-offset:3px}.foot{margin-top:26px;color:var(--muted);font-size:.92rem;line-height:1.7}@media(max-width:640px){main{padding-top:24px}.grid{grid-template-columns:1fr}.card{border-radius:22px;padding:24px}}
+  </style>
+</head>
+<body>
+  <main>
+    <a class="crumb" href="../../">← 返回版本选择</a>
+    <section class="card">
+      <div class="eyebrow">历史固定版本 <span class="badge">v3.0.0</span></div>
+      <h1>心伴 AI-Pet<br>灵动语音研究原型</h1>
+      <p class="lead">这一版把“关爱感”落在更清楚的选择、更细腻的状态反馈和及时连接真人上，而不是把 AI 塑造成会依赖学生的虚拟关系。v1、v2 的代码、入口与数据边界均保持不变。</p>
+      <div class="notice"><strong>当前发布边界：</strong>这里是不会收集输入的固定说明页。v3 全栈项目使用全新 D1，但公开部署不含 Qwen API Key；语音与真实模型调用需在学校审批后由管理员配置，不能在浏览器或 GitHub 中填写密钥。</div>
+      <div class="grid" aria-label="版本能力">
+        <div class="item"><strong>更灵动的学生端</strong><span>心情反馈、状态化小狗微动、隐私优先保存、一次建议与明确会话收束。</span></div>
+        <div class="item"><strong>语音输入与朗读</strong><span>30 秒、2.5 MB 的 Qwen3-ASR 转写；文字可编辑；AI 建议仅由学生主动使用设备朗读。</span></div>
+        <div class="item"><strong>本地安全优先</strong><span>转写后立即运行本地危机规则；命中时不自动保存、不调用聊天模型，直接引导真人与 110/120。</span></div>
+        <div class="item"><strong>中国模型路线</strong><span>首选阿里云 Model Studio 北京地域的 Qwen 文本与 ASR，密钥只在服务端。</span></div>
+        <div class="item"><strong>原型级防护</strong><span>域名白名单、体积/格式/时长校验、限流、并发和重放保护；音频不写数据库或日志。</span></div>
+        <div class="item"><strong>独立版本</strong><span>固定源码提交 87ecf0d；全新 Sites 项目和独立 D1，不读取或覆盖 v1 数据。</span></div>
+      </div>
+      <div class="checks"><strong>已验证</strong><p>生产构建、ESLint 和 10 项 SSR/API 自动测试均通过。真实 Qwen 调用、真实麦克风设备差异、平台级全局限流与学校危机送达闭环仍属于正式试点前工作。</p></div>
+      <div class="actions">
+        <a class="button primary" href="https://github.com/ling20251121/xinban-ai-pet/releases/tag/v3.0.0" rel="noopener">查看 v3 Release</a>
+        <a class="button secondary" href="../v2.0.0/">打开 v2 无账号演示</a>
+      </div>
+      <p class="foot">固定代码节点：87ecf0d · 发布日期：2026-08-12 · 数据状态：仅合成或充分脱敏测试数据。此说明页不连接 v3 数据库或模型。</p>
+    </section>
+  </main>
+</body>
+</html>
