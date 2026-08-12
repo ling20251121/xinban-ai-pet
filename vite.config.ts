@@ -62,6 +62,12 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    // Vinext's SSR entry imports named exports from react-dom/server.edge.
+    // Node treats that published entry as CommonJS when it remains external,
+    // so bundle React DOM into the Node/PostgreSQL SSR artifact instead.
+    ssr: isNodePostgresBuild
+      ? { noExternal: ["react-dom", "react-dom/server.edge"] }
+      : undefined,
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
