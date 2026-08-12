@@ -65,7 +65,7 @@ export default function LoginPanel() {
       const data = (await response.json()) as { user?: LoginUser; error?: string };
       if (!response.ok || !data.user) {
         const message = response.status === 429
-          ? "尝试次数较多，请稍后再试，或联系老师重置密码。"
+          ? "尝试次数较多，请稍后再试，或联系演示部署方重置凭据。"
           : response.status === 401
             ? "用户名或密码不正确。请检查部署方发放的演示凭据。"
             : data.error || "暂时无法登录，请稍后再试。";
@@ -106,6 +106,19 @@ export default function LoginPanel() {
           <p className="login-eyebrow">合成学校沙盒</p>
           <h2 id="login-title">选一个虚构角色</h2>
           <p className="login-intro">18 岁以上测试者可扮演虚构学生或教师，体验心情、语音、Qwen 对话和人工处置闭环。</p>
+
+          <nav className="experience-mode-picker" aria-label="选择体验方式">
+            <a className="is-current" href="/login" aria-current="page">
+              <span>体验模式 A</span>
+              <strong>完整学生／教师界面</strong>
+              <small>成人扮演固定虚构角色，真实运行界面和 API 流程。</small>
+            </a>
+            <a href="/evaluate">
+              <span>体验模式 B</span>
+              <strong>教师／专家匿名评估</strong>
+              <small>评价固定合成案例与冻结 AI 输出，不录入学生资料。</small>
+            </a>
+          </nav>
 
           <section className="demo-credentials" aria-labelledby="demo-credentials-title">
             <strong id="demo-credentials-title">演示凭据不在页面公开</strong>

@@ -46,6 +46,29 @@ test("adult evaluation mode fails closed and redirects every school surface", as
   assert.match(await evaluation.text(), /成人|合成情境/u);
 });
 
+test("adult evaluation and the complete synthetic school interface coexist", async () => {
+  const bindings = {
+    PUBLIC_DEMO_MODE: "true",
+    ADULT_EVALUATION_ONLY: "true",
+    SANDBOX_MODE: "true",
+    SANDBOX_ADMIN_KEY: "sandbox-admin-test-key-123456789",
+  };
+
+  for (const pathname of ["/", "/login", "/teacher"]) {
+    const response = await call(pathname, { headers: { accept: "text/html" } }, bindings);
+    assert.equal(response.status, 200, pathname);
+    const html = await response.text();
+    assert.match(html, /合成|虚构/u, pathname);
+    if (pathname === "/login") assert.match(html, /href="\/evaluate"/u, pathname);
+  }
+
+  const evaluation = await call("/evaluate", { headers: { accept: "text/html" } }, bindings);
+  assert.equal(evaluation.status, 200);
+  const evaluationHtml = await evaluation.text();
+  assert.match(evaluationHtml, /心伴双模式演示/u);
+  assert.match(evaluationHtml, /href="\/login"/u);
+});
+
 test("student consent gate exposes data rights without requiring renewed consent", async () => {
   const source = await readFile(
     new URL("../app/StudentCompanion.tsx", import.meta.url),

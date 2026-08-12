@@ -40,6 +40,7 @@ interface EvaluationRuntime {
   EVALUATION_CONTACT?: string;
   EVALUATION_ETHICS_STATUS?: string;
   EVALUATION_RETENTION_DAYS?: string;
+  EVALUATION_DATA_HOST?: string;
 }
 
 interface ParticipantRow {
@@ -136,6 +137,7 @@ function runtime(): EvaluationRuntime {
     EVALUATION_CONTACT: cloud.EVALUATION_CONTACT ?? process.env.EVALUATION_CONTACT,
     EVALUATION_ETHICS_STATUS: cloud.EVALUATION_ETHICS_STATUS ?? process.env.EVALUATION_ETHICS_STATUS,
     EVALUATION_RETENTION_DAYS: cloud.EVALUATION_RETENTION_DAYS ?? process.env.EVALUATION_RETENTION_DAYS,
+    EVALUATION_DATA_HOST: cloud.EVALUATION_DATA_HOST ?? process.env.EVALUATION_DATA_HOST,
   };
 }
 
@@ -267,11 +269,12 @@ export function publicEvaluationInformation() {
   const researcher = values.EVALUATION_RESEARCHER_NAME?.trim() ?? "";
   const contact = values.EVALUATION_CONTACT?.trim() ?? "";
   const ethicsStatus = values.EVALUATION_ETHICS_STATUS?.trim() ?? "";
+  const storage = values.EVALUATION_DATA_HOST?.trim() ?? "";
   const retentionDays = Number(values.EVALUATION_RETENTION_DAYS);
-  if (researcher.length < 2 || contact.length < 5 || ethicsStatus.length < 2 || !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
+  if (researcher.length < 2 || contact.length < 5 || ethicsStatus.length < 2 || storage.length < 5 || !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
     throw new ApiError(503, "成人评估研究说明尚未完整配置，暂不开放数据收集。");
   }
-  return { researcher, contact, ethicsStatus, retentionDays, purpose: "评估心伴 AI-Pet 原型在固定合成学生情境中的可用性、决策支持和安全边界", duration: "约 25–35 分钟", compensation: "无报酬", risks: "可能产生轻微疲劳或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage: "部署方受保护的中国内地研究数据库", withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
+  return { researcher, contact, ethicsStatus, retentionDays, purpose: "评估心伴 AI-Pet 原型在固定合成学生情境中的可用性、决策支持和安全边界", duration: "约 25–35 分钟", compensation: "无报酬", risks: "可能产生轻微疲劳或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
 }
 
 export async function startEvaluation(request: Request, input: {

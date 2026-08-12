@@ -19,6 +19,15 @@
 .demo-credentials strong { color: #6d471a; font-size: .86rem; }
 .demo-credentials p { margin: 5px 0 0; color: #7b603c; font-size: .76rem; line-height: 1.6; }
 
+.experience-mode-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: -10px 0 24px; }
+.experience-mode-picker a { display: grid; gap: 5px; min-height: 126px; padding: 15px; border: 1px solid #e1ddec; border-radius: 16px; color: #595267; background: #fff; text-decoration: none; }
+.experience-mode-picker a:hover { border-color: #8a76d3; box-shadow: 0 10px 24px rgba(75,55,130,.09); }
+.experience-mode-picker a:focus-visible { outline: 3px solid #8a76d3; outline-offset: 3px; }
+.experience-mode-picker a.is-current { border-color: #806bd2; background: #f5f1ff; box-shadow: 0 0 0 3px rgba(121,99,202,.1); }
+.experience-mode-picker span { color: #887ba3; font-size: .66rem; font-weight: 850; letter-spacing: .08em; }
+.experience-mode-picker strong { color: #443969; font-size: .84rem; line-height: 1.35; }
+.experience-mode-picker small { color: #777083; font-size: .69rem; line-height: 1.55; }
+
 .login-visual {
   position: relative;
   min-height: 100svh;
@@ -124,6 +133,8 @@
   .login-visual-copy > p:last-child { font-size: .88rem; line-height: 1.65; }
   .login-pet-stage { width: 190px; right: -58px; bottom: -8px; opacity: .68; }
   .login-form-pane { place-items: start center; }
+  .experience-mode-picker { grid-template-columns: 1fr; }
+  .experience-mode-picker a { min-height: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

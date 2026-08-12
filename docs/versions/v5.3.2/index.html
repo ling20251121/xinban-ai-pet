@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v5.3.2：完整学生/教师合成沙盒与成人教师/专家评估双模式并存。">
+  <title>心伴 AI-Pet v5.3.2 · 双模式成人演示</title>
+  <style>
+    :root{--ink:#302a47;--muted:#716b7d;--violet:#6956bd;--violet-soft:#eee9ff;--green:#287760;--green-soft:#e8f7f0;--amber:#7a581f;--amber-soft:#fff5dd;--line:#dfdaec;--paper:#fff;--canvas:#faf8ff;--shadow:0 24px 68px rgba(73,54,129,.12)}
+    *{box-sizing:border-box}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 9% 9%,#e8e1ff 0,transparent 30%),radial-gradient(circle at 92% 14%,#daf4e9 0,transparent 29%),var(--canvas);line-height:1.72}a{color:inherit}.skip{position:fixed;top:8px;left:12px;z-index:20;transform:translateY(-150%);padding:9px 13px;border-radius:10px;background:var(--ink);color:#fff}.skip:focus{transform:none}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:74px;padding:12px max(20px,calc((100vw - 1080px)/2));border-bottom:1px solid var(--line);background:rgba(255,255,255,.96)}.brand{font-weight:900;text-decoration:none}.brand small{margin-left:8px;color:#827a91;font-size:.7rem}.archive{display:inline-flex;min-height:44px;align-items:center;padding:8px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;font-size:.82rem;font-weight:800;text-decoration:none}main{width:min(1080px,calc(100% - 32px));margin:auto;padding:48px 0 64px}.hero{padding:clamp(25px,5vw,54px);border:1px solid var(--line);border-radius:31px;background:rgba(255,255,255,.97);box-shadow:var(--shadow)}.eyebrow{margin:0;color:#6e5cba;font-size:.74rem;font-weight:900;letter-spacing:.12em}.version{display:inline-flex;margin-left:8px;padding:5px 9px;border-radius:999px;background:var(--violet-soft);letter-spacing:0}.hero h1{margin:.6rem 0 .9rem;font-size:clamp(2.2rem,6vw,4.3rem);line-height:1.04;letter-spacing:-.045em}.lead{max-width:900px;margin:0;color:var(--muted)}.boundary{margin-top:26px;padding:18px 20px;border:1px solid #e4c882;border-radius:17px;background:var(--amber-soft);color:#6b5129}.modes{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:24px}.mode{padding:24px;border:1px solid var(--line);border-radius:21px;background:#fff}.mode:first-child{border-top:7px solid var(--violet)}.mode:last-child{border-top:7px solid var(--green)}.mode p{margin:0;color:#80748f;font-size:.7rem;font-weight:900;letter-spacing:.1em}.mode h2{margin:6px 0 8px;font-size:1.25rem}.mode ul{margin:10px 0 0;padding-left:20px;color:var(--muted);font-size:.87rem}.mode li{margin:6px 0}.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:22px}.fact{padding:18px;border-radius:16px;color:#fff;background:#453c62}.fact:nth-child(2){background:var(--green)}.fact:nth-child(3){background:#7b5d2e}.fact strong{display:block;margin-bottom:5px}.fact span{color:#eeeaf6;font-size:.82rem}.notice{margin-top:22px;padding:18px;border:1px solid var(--line);border-radius:16px;background:#f8f6fd;color:#6d6678;font-size:.85rem}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:8px 16px;border-radius:12px;font-weight:900;text-decoration:none}.primary{background:var(--violet);color:#fff}.secondary{border:1px solid var(--line);background:#fff}.foot{margin-top:24px;color:#898291;font-size:.77rem}.archive:focus-visible,.button:focus-visible{outline:3px solid #9a89df;outline-offset:3px}@media(max-width:720px){.modes,.facts{grid-template-columns:1fr}}@media(max-width:480px){main{width:min(100% - 20px,480px);padding-top:26px}.topbar{padding-inline:11px}.brand small{display:none}.hero{padding:22px;border-radius:21px}.actions{display:grid}.button{width:100%}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="topbar"><a class="brand" href="../../">心伴 <small>AI-PET · v5.3.2</small></a><a class="archive" href="../../">返回全部版本</a></header>
+  <main id="main">
+    <article class="hero">
+      <p class="eyebrow">DUAL-MODE ADULT DEMONSTRATION <span class="version">v5.3.2</span></p>
+      <h1>保留完整学生界面，<br>也保留专业评估。</h1>
+      <p class="lead">v5.3.2 不删除学生端和教师端，也不把它们变成静态截图。成年测试者可以在合成学校沙盒中操作完整界面；教师和专家也可进入独立评估路径，提交对固定合成案例和冻结 AI 输出的形成性评价。</p>
+
+      <div class="boundary"><strong>共同边界：</strong>两条路径均仅限 18 岁以上成人。学生、学校、心情情境与处置线索均为虚构合成内容；禁止录入真实学生、学校或联系方式。本页只是固定版本说明，不联网、不登录、不收集数据。</div>
+
+      <section class="modes" aria-label="双模式说明">
+        <article class="mode"><p>MODE A · /LOGIN</p><h2>完整学生／教师界面</h2><ul><li>固定虚构账号与三种合成起始情境</li><li>心情、Qwen 对话、ASR/TTS 与历史界面</li><li>合成班级汇总和模拟教师处置队列</li><li>学校域数据强制 synthetic=1</li></ul></article>
+        <article class="mode"><p>MODE B · /EVALUATE</p><h2>教师／专家成人评估</h2><ul><li>12 个固定合成学生案例</li><li>一次性邀请码与匿名参与编号</li><li>冻结 AI 材料、SUS、工作负担与安全评价</li><li>评估表与学校沙盒表分离</li></ul></article>
+      </section>
+
+      <section class="facts" aria-label="验证结果">
+        <article class="fact"><strong>双模式并存</strong><span>同一安全配置下，/login、学生端、教师端与 /evaluate 同时可访问。</span></article>
+        <article class="fact"><strong>23/23 通过</strong><span>全栈构建、权限、合成隔离、评估和沙盒回归全部通过。</span></article>
+        <article class="fact"><strong>地域如实披露</strong><span>评估存储位置由部署方配置；香港部署不得再写中国内地。</span></article>
+      </section>
+
+      <div class="notice"><strong>研究解释：</strong>完整学生界面用于让教师和专家看见、操作并评价产品体验，但操作者仍是成人，输入仍是合成情境。该记录不能当作真实中小学生效果或心理健康改善证据。</div>
+      <div class="actions"><a class="button primary" href="../../">返回版本档案</a><a class="button secondary" href="../v5.3.1/">查看上一固定版本</a></div>
+      <p class="foot">心伴 AI-Pet v5.3.2 · 固定静态说明 · 无网络、无表单、无脚本、无存储、无凭据</p>
+    </article>
+  </main>
+</body>
+</html>

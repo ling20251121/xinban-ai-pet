@@ -1095,7 +1095,7 @@ export default function StudentCompanion() {
           <p className="eyebrow">首次使用说明</p>
           <h1 id="consent-title">在开始前，请先了解这些边界</h1>
           <p className="consent-lead">
-            心伴用于记录每日心情，并在你主动选择时提供短时 AI 对话。它不是心理诊断，也不能代替老师、家长、医生或紧急服务。
+            本演示用于测试合成心情记录，并在你主动选择时提供短时 AI 对话。它不是心理诊断，也不能代替老师、家长、医生或紧急服务。
           </p>
           <div className={`guardian-status ${user.guardianConsentVerified ? "is-verified" : "is-blocked"}`}>
             <strong>模拟前置状态：{user.guardianConsentVerified ? "已开启" : "尚未开启"}</strong>
@@ -1109,7 +1109,7 @@ export default function StudentCompanion() {
             <li>合成心情记录会保存在演示沙盒中；你可以查看和删除本角色内容。</li>
             <li>只有你主动选择 AI 对话时，合成文字才会发送给演示配置的 Qwen 模型。</li>
             <li>仅限 18 岁以上测试者；禁止输入真实学生、学校或联系方式。</li>
-            <li>老师只查看班级汇总、支持请求和最少必要安全线索，不查看普通聊天原文。</li>
+            <li>模拟教师角色只查看合成班级汇总、支持请求和最少必要安全线索，不查看普通聊天原文。</li>
           </ul>
           <form onSubmit={acceptConsent}>
             <label className="check-row consent-check">
@@ -1128,7 +1128,7 @@ export default function StudentCompanion() {
                 type="submit"
                 disabled={!user.guardianConsentVerified || !consentChecked || consentBusy}
               >
-                {consentBusy ? "正在保存……" : "同意并进入"}
+                {consentBusy ? "正在保存……" : "确认以成人测试者身份进入"}
               </button>
               <button className="text-button" type="button" onClick={logout}>退出账号</button>
             </div>
@@ -1373,7 +1373,7 @@ export default function StudentCompanion() {
 
               <div className="choice-panel">
                 <label className="check-row">
-                  <input aria-label="我希望老师或辅导员联系我" type="checkbox" checked={wantsSupport} onChange={(event) => setWantsSupport(event.target.checked)} />
+                  <input aria-label="测试向模拟教师角色请求支持" type="checkbox" checked={wantsSupport} onChange={(event) => setWantsSupport(event.target.checked)} />
                   <span><strong>测试“请求老师支持”</strong><small>这会进入模拟教师处置队列，不会联系任何真实学生或学校。</small></span>
                 </label>
                 <label className="check-row">

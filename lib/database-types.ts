@@ -42,4 +42,5 @@ export interface RuntimeConfig {
   EVALUATION_CONTACT?: string;
   EVALUATION_ETHICS_STATUS?: string;
   EVALUATION_RETENTION_DAYS?: string;
+  EVALUATION_DATA_HOST?: string;
 }

@@ -191,6 +191,7 @@ export function createPostgresDatabase(environment: NodeJS.ProcessEnv): {
       EVALUATION_CONTACT: environment.EVALUATION_CONTACT,
       EVALUATION_ETHICS_STATUS: environment.EVALUATION_ETHICS_STATUS,
       EVALUATION_RETENTION_DAYS: environment.EVALUATION_RETENTION_DAYS,
+      EVALUATION_DATA_HOST: environment.EVALUATION_DATA_HOST,
     },
     close: () => pool.end(),
   };

@@ -57,7 +57,14 @@
 
 .sandbox-notice__copy strong { font-size: 14px; letter-spacing: .04em; }
 .sandbox-notice__copy span { color: #76552d; font-size: 12px; line-height: 1.5; }
-.sandbox-notice > a,
+.sandbox-notice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.sandbox-notice__actions > a,
 .sandbox-notice__reset-hint {
   min-height: 36px;
   padding: 0 13px;
@@ -72,6 +79,7 @@
   font-weight: 800;
   text-decoration: none;
 }
+.sandbox-notice__actions > a[aria-current="page"] { border-color: #6f3e17; background: #6f3e17; color: #fffaf0; }
 .sandbox-notice__reset-hint { border-style: dashed; color: #7a5b34; }
 
 .sandbox-scenario-card {
@@ -95,8 +103,10 @@
   .sandbox-notice__copy { display: grid; }
   .sandbox-notice__copy strong { font-size: 12px; }
   .sandbox-notice__copy span { font-size: 10px; }
-  .sandbox-notice > a,
-  .sandbox-notice__reset-hint { grid-column: 1 / -1; width: 100%; min-height: 34px; }
+  .sandbox-notice__actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .sandbox-notice__actions > a,
+  .sandbox-notice__reset-hint { min-height: 36px; }
+  .sandbox-notice__reset-hint { grid-column: 1 / -1; }
 }
 
 /* v5 authenticated student experience */

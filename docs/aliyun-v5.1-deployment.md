@@ -95,6 +95,21 @@ enter only through one-time evaluation codes. Deploy it against a newly created,
 empty database that has never held school or student records; never reuse or
 restore the D1/RDS database from a school-mode environment.
 
+For the v5.3.2 dual-mode adult demonstration, keep all of the following:
+
+```env
+PUBLIC_DEMO_MODE=true
+ADULT_EVALUATION_ONLY=true
+SANDBOX_MODE=true
+SANDBOX_ADMIN_KEY=<at-least-24-random-characters>
+EVALUATION_DATA_HOST=<truthful-location-shown-in-adult-consent>
+```
+
+This preserves `/login`, `/`, and `/teacher` as a synthetic school interface while
+keeping `/evaluate` available for adult teacher/expert evaluation. Use one new empty
+database for the deployment; every school-domain row must remain `synthetic=1`.
+For a Hong Kong host, the consent text must say Hong Kong rather than mainland China.
+
 `server/register-postgres.ts` installs the Node/PostgreSQL runtime binding. It
 is deliberately separate from `worker/index.ts`, which remains the v5.0 D1
 entry. The final Alibaba Cloud service entry must load this registration module

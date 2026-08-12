@@ -13,6 +13,7 @@ const STUDY_BINDINGS = {
   EVALUATION_CONTACT: "research@example.invalid",
   EVALUATION_ETHICS_STATUS: "Protocol pending; formative prototype feedback only",
   EVALUATION_RETENTION_DAYS: "365",
+  EVALUATION_DATA_HOST: "Protected synthetic-evaluation database in a test region",
 };
 const decision = {
   chosenAction: "brief_check_in",

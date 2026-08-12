@@ -1,7 +1,7 @@
 {
   "project": "XinBan AI-Pet",
   "updatedAt": "2026-08-12",
-  "current": "v5.3.1",
+  "current": "v5.3.2",
   "versions": [
     {
       "version": "v1.0.0",
@@ -191,6 +191,35 @@
       "onlineAsrVerified": false,
       "onlineTtsVerified": false,
       "syntheticOnly": true,
+      "archivePageNetworkRequests": false,
+      "archivePageForms": false,
+      "archivePageScripts": false,
+      "browserStorage": false,
+      "liveModelKeyIncluded": false,
+      "realStudentData": false,
+      "approvedForRealMinorPilot": false,
+      "approvedAsResearchResults": false,
+      "interventionEffectClaim": false
+    },
+    {
+      "version": "v5.3.2",
+      "type": "dual-mode-adult-synthetic-interface-and-professional-evaluation",
+      "commit": null,
+      "fixedPath": "./v5.3.2/",
+      "participants": [
+        "adult-testers-only",
+        "adult-teachers",
+        "adult-experts"
+      ],
+      "modes": {
+        "syntheticSchoolInterface": "/login",
+        "adultProfessionalEvaluation": "/evaluate"
+      },
+      "studentAndTeacherInterfacesRetained": true,
+      "syntheticSchoolRowsRequired": true,
+      "evaluationTablesSeparate": true,
+      "evaluationDataHostMustBeConfigured": true,
+      "fullRegressionTests": "23/23",
       "archivePageNetworkRequests": false,
       "archivePageForms": false,
       "archivePageScripts": false,
