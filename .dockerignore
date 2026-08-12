@@ -6,6 +6,7 @@ dist
 node_modules
 outputs
 work
+deploy/runtime
 .env*
 !.env.example
 *.pem

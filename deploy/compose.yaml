@@ -28,11 +28,10 @@ x-app-environment: &app-environment
 services:
   tls-init:
     image: alpine:3.22.5
-    command: ["/bin/sh", "-c", "apk add --no-cache openssl >/dev/null && /init-tls.sh"]
+    command: ["/bin/sh", "-c", "test -s /tls/server.key && test -s /tls/server.crt && test -s /ca/ca.crt"]
     volumes:
-      - postgres_tls:/tls
-      - postgres_ca:/ca
-      - ./postgres/init-tls.sh:/init-tls.sh:ro
+      - ./runtime/postgres-tls:/tls:ro
+      - ./runtime/postgres-ca:/ca:ro
     restart: "no"
     networks: [database]
 
@@ -64,7 +63,7 @@ services:
       retries: 20
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - postgres_tls:/run/postgres-tls:ro
+      - ./runtime/postgres-tls:/run/postgres-tls:ro
     restart: unless-stopped
     mem_limit: 512m
     networks: [database]
@@ -80,7 +79,7 @@ services:
     environment: *app-environment
     command: ["node", "--conditions=react-server", "scripts/migrate-postgres.mjs"]
     volumes:
-      - postgres_ca:/run/postgres-ca:ro
+      - ./runtime/postgres-ca:/run/postgres-ca:ro
     restart: "no"
     mem_limit: 512m
     networks: [database]
@@ -97,7 +96,7 @@ services:
       timeout: 5s
       retries: 20
     volumes:
-      - postgres_ca:/run/postgres-ca:ro
+      - ./runtime/postgres-ca:/run/postgres-ca:ro
     restart: unless-stopped
     mem_limit: 700m
     networks: [edge, database]
@@ -123,8 +122,6 @@ services:
 
 volumes:
   postgres_data:
-  postgres_tls:
-  postgres_ca:
   caddy_data:
   caddy_config:
 
