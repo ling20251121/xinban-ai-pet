@@ -360,6 +360,190 @@ test("voice transcription fails closed when provider duration is missing", async
   }
 });
 
+test("voice transcription accepts current Qwen audio-token duration metadata", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({
+      choices: [{ message: { content: "今天还好。" } }],
+      usage: { prompt_tokens_details: { audio_tokens: 27 } },
+    });
+
+  try {
+    const response = await callApi(
+      "/api/voice/transcribe",
+      {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.70",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          dataUrl: wavDataUrl(1),
+          mimeType: "audio/wav",
+        }),
+      },
+      {
+        QWEN_API_KEY: "sk-test-only",
+        QWEN_ASR_MODEL: "qwen3-asr-flash-2026-02-10",
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).text, "今天还好。");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("voice transcription rejects invalid or over-limit audio-token metadata", async () => {
+  const originalFetch = globalThis.fetch;
+  const cases = [
+    { audioTokens: 751, expectedStatus: 413 },
+    { audioTokens: -25, expectedStatus: 502 },
+    { audioTokens: "25", expectedStatus: 502 },
+    { audioTokens: 25.5, expectedStatus: 502 },
+  ];
+
+  try {
+    for (let index = 0; index < cases.length; index += 1) {
+      const { audioTokens, expectedStatus } = cases[index];
+      globalThis.fetch = async () =>
+        Response.json({
+          choices: [{ message: { content: "今天还好。" } }],
+          usage: { prompt_tokens_details: { audio_tokens: audioTokens } },
+        });
+      const response = await callApi(
+        "/api/voice/transcribe",
+        {
+          method: "POST",
+          headers: {
+            "cf-connecting-ip": `203.0.113.${71 + index}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            dataUrl: wavDataUrl(1),
+            mimeType: "audio/wav",
+          }),
+        },
+        {
+          QWEN_API_KEY: "sk-test-only",
+          QWEN_ASR_MODEL: "qwen3-asr-flash-2026-02-10",
+        },
+      );
+      assert.equal(response.status, expectedStatus);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("voice transcription enforces the larger of seconds and audio-token duration", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({
+      choices: [{ message: { content: "今天还好。" } }],
+      usage: {
+        seconds: 1,
+        prompt_tokens_details: { audio_tokens: 751 },
+      },
+    });
+
+  try {
+    const response = await callApi(
+      "/api/voice/transcribe",
+      {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.76",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          dataUrl: wavDataUrl(1),
+          mimeType: "audio/wav",
+        }),
+      },
+      {
+        QWEN_API_KEY: "sk-test-only",
+        QWEN_ASR_MODEL: "qwen3-asr-flash-2026-02-10",
+      },
+    );
+    assert.equal(response.status, 413);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("voice transcription rejects malformed metadata even when the other field is valid", async () => {
+  const originalFetch = globalThis.fetch;
+  const usages = [
+    { seconds: 1, prompt_tokens_details: { audio_tokens: "25" } },
+    { seconds: "1", prompt_tokens_details: { audio_tokens: 25 } },
+  ];
+
+  try {
+    for (let index = 0; index < usages.length; index += 1) {
+      globalThis.fetch = async () =>
+        Response.json({
+          choices: [{ message: { content: "今天还好。" } }],
+          usage: usages[index],
+        });
+      const response = await callApi(
+        "/api/voice/transcribe",
+        {
+          method: "POST",
+          headers: {
+            "cf-connecting-ip": `203.0.113.${77 + index}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            dataUrl: wavDataUrl(1),
+            mimeType: "audio/wav",
+          }),
+        },
+        {
+          QWEN_API_KEY: "sk-test-only",
+          QWEN_ASR_MODEL: "qwen3-asr-flash-2026-02-10",
+        },
+      );
+      assert.equal(response.status, 502);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("voice transcription accepts the documented 30-second audio-token boundary", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({
+      choices: [{ message: { content: "今天还好。" } }],
+      usage: { prompt_tokens_details: { audio_tokens: 750 } },
+    });
+
+  try {
+    const response = await callApi(
+      "/api/voice/transcribe",
+      {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.79",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          dataUrl: wavDataUrl(1),
+          mimeType: "audio/wav",
+        }),
+      },
+      {
+        QWEN_API_KEY: "sk-test-only",
+        QWEN_ASR_MODEL: "qwen3-asr-flash-2026-02-10",
+      },
+    );
+    assert.equal(response.status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("speech synthesis requires an explicit user action and configuration", async () => {
   const notInitiated = await callApi("/api/voice/synthesize", {
     method: "POST",
@@ -397,7 +581,7 @@ test("speech synthesis uses a fixed Qwen snapshot and system voice", async () =>
         output: {
           audio: {
             data: "",
-            url: "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav?Signature=test",
+            url: "http://dashscope-a717.oss-cn-beijing.aliyuncs.com/test.wav?Signature=test",
           },
         },
       });
@@ -441,9 +625,89 @@ test("speech synthesis uses a fixed Qwen snapshot and system voice", async () =>
     assert.match(providerRequest.input.instructions, /不模仿任何真实人物/);
     assert.equal(
       audioDownloadUrl,
-      "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav?Signature=test",
+      "https://dashscope-a717.oss-cn-beijing.aliyuncs.com/test.wav?Signature=test",
     );
     assert.ok((await response.arrayBuffer()).byteLength >= 44);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("speech synthesis keeps the official Beijing result host compatible", async () => {
+  const originalFetch = globalThis.fetch;
+  let downloadUrl = "";
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("/multimodal-generation/generation")) {
+      return Response.json({
+        output: {
+          audio: {
+            data: "",
+            url: "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav?Signature=official",
+          },
+        },
+      });
+    }
+    downloadUrl = url;
+    return new Response(Buffer.from(wavDataUrl(0.2).split(",", 2)[1], "base64"), {
+      headers: { "content-type": "audio/wav" },
+    });
+  };
+
+  try {
+    const response = await callApi(
+      "/api/voice/synthesize",
+      {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.83",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ text: "官方地址兼容测试", userInitiated: true }),
+      },
+      { QWEN_API_KEY: "sk-test-only" },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(
+      downloadUrl,
+      "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav?Signature=official",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("speech synthesis rejects non-Beijing and lookalike audio hosts", async () => {
+  const originalFetch = globalThis.fetch;
+  const rejectedUrls = [
+    "https://dashscope-a717.oss-cn-shanghai.aliyuncs.com/test.wav",
+    "https://dashscope-a717.oss-cn-beijing.aliyuncs.com.evil.example/test.wav",
+    "https://dashscope-attacker.oss-cn-beijing.aliyuncs.com/test.wav",
+    "https://dashscope-a717-x.oss-cn-beijing.aliyuncs.com/test.wav",
+  ];
+
+  try {
+    for (let index = 0; index < rejectedUrls.length; index += 1) {
+      const providerUrl = rejectedUrls[index];
+      globalThis.fetch = async () =>
+        Response.json({ output: { audio: { data: "", url: providerUrl } } });
+      const response = await callApi(
+        "/api/voice/synthesize",
+        {
+          method: "POST",
+          headers: {
+            "cf-connecting-ip": `203.0.113.${90 + index}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            text: `安全地址校验 ${index + 1}`,
+            userInitiated: true,
+          }),
+        },
+        { QWEN_API_KEY: "sk-test-only" },
+      );
+      assert.equal(response.status, 502);
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

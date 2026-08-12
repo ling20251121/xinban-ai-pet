@@ -575,10 +575,58 @@ function extractProviderDurationSeconds(payload: unknown): number | null {
   if (!payload || typeof payload !== "object") return null;
   const usage = (payload as { usage?: unknown }).usage;
   if (!usage || typeof usage !== "object") return null;
+  const hasOwn = (key: string) =>
+    Object.prototype.hasOwnProperty.call(usage, key);
+  const secondsPresent = hasOwn("seconds");
   const seconds = (usage as { seconds?: unknown }).seconds;
-  return typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0
-    ? seconds
-    : null;
+  if (
+    secondsPresent &&
+    (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0)
+  ) {
+    return null;
+  }
+  const validSeconds = secondsPresent ? (seconds as number) : null;
+
+  // The current Qwen3-ASR compatible response can omit usage.seconds while
+  // returning prompt_tokens_details.audio_tokens. Alibaba documents a fixed
+  // conversion of 25 audio tokens per second. This remains only a secondary
+  // provider check: the request has already been parsed and capped locally.
+  const promptDetailsPresent = hasOwn("prompt_tokens_details");
+  const promptDetails = (usage as { prompt_tokens_details?: unknown })
+    .prompt_tokens_details;
+  if (
+    promptDetailsPresent &&
+    (promptDetails === null || typeof promptDetails !== "object")
+  ) {
+    return null;
+  }
+  const audioTokensPresent =
+    promptDetails !== null &&
+    typeof promptDetails === "object" &&
+    Object.prototype.hasOwnProperty.call(promptDetails, "audio_tokens");
+  const audioTokens =
+    audioTokensPresent
+      ? (promptDetails as { audio_tokens?: unknown }).audio_tokens
+      : undefined;
+  if (
+    audioTokensPresent &&
+    (typeof audioTokens !== "number" ||
+      !Number.isFinite(audioTokens) ||
+      !Number.isInteger(audioTokens) ||
+      audioTokens < 0)
+  ) {
+    return null;
+  }
+  const validAudioTokens =
+    audioTokensPresent && typeof audioTokens === "number"
+      ? audioTokens / 25
+      : null;
+
+  if (validSeconds === null) return validAudioTokens;
+  if (validAudioTokens === null) return validSeconds;
+  // When both are present, enforce the larger estimate so neither metadata
+  // field can hide an over-limit recording.
+  return Math.max(validSeconds, validAudioTokens);
 }
 
 export async function transcribeWithQwen(

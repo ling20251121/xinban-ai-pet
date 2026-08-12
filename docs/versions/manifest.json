@@ -1,7 +1,7 @@
 {
   "project": "XinBan AI-Pet",
   "updatedAt": "2026-08-12",
-  "current": "v4.0.0",
+  "current": "v4.0.1",
   "versions": [
     {
       "version": "v1.0.0",
@@ -47,6 +47,25 @@
       "database": "full-stack-runtime-only",
       "primaryModel": "Qwen",
       "modelRegion": "Alibaba Cloud Model Studio Beijing",
+      "serverSideKeyRequired": true,
+      "archivePageNetworkRequests": false,
+      "browserStorage": false,
+      "liveModelKeyIncluded": false,
+      "realStudentData": false
+    },
+    {
+      "version": "v4.0.1",
+      "type": "qwen-beijing-three-path-compatibility-patch",
+      "commit": null,
+      "fixedPath": "./v4.0.1/",
+      "interfaceBasedOn": "v4.0.0",
+      "primaryModel": "Qwen",
+      "modelRegion": "Alibaba Cloud Model Studio Beijing",
+      "changes": [
+        "dynamic-tts-audio-host-compatibility",
+        "current-asr-audio-token-duration-compatibility",
+        "text-asr-tts-live-integration-check"
+      ],
       "serverSideKeyRequired": true,
       "archivePageNetworkRequests": false,
       "browserStorage": false,

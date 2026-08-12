@@ -106,12 +106,17 @@ export function normalizeQwenAudioUrl(value: string): string | null {
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
       return null;
     }
+    const isBeijingDashScopeAudioHost =
+      parsed.hostname === "dashscope-result-bj.oss-cn-beijing.aliyuncs.com" ||
+      /^dashscope-a\d{3,6}\.oss-cn-beijing\.aliyuncs\.com$/i.test(
+        parsed.hostname,
+      );
     if (
       parsed.port ||
       parsed.username ||
       parsed.password ||
       parsed.hash ||
-      parsed.hostname !== "dashscope-result-bj.oss-cn-beijing.aliyuncs.com"
+      !isBeijingDashScopeAudioHost
     ) {
       return null;
     }

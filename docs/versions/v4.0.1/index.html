@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v4.0.1：Qwen 北京动态 TTS 音频域名兼容与文本、ASR、TTS 三链路联调说明">
+  <title>心伴 AI-Pet v4.0.1 · Qwen 北京三链路联调修复</title>
+  <style>
+    :root{--ink:#292d42;--muted:#74798d;--violet:#6559ca;--violet-soft:#efedff;--green:#347c66;--green-soft:#eaf7f2;--gold:#9b6f2c;--gold-soft:#fff5e5;--line:#e0e1e9;--paper:#fff;--canvas:#f7f7fb;--shadow:0 22px 65px rgba(59,54,107,.09)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 12% 8%,#ebe8ff 0,transparent 30%),var(--canvas);line-height:1.7}a{color:inherit}.skip{position:fixed;top:8px;left:12px;z-index:20;transform:translateY(-150%);padding:9px 13px;border-radius:10px;background:var(--ink);color:#fff}.skip:focus{transform:none}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:76px;padding:12px max(22px,calc((100vw - 980px)/2));border-bottom:1px solid var(--line);background:rgba(255,255,255,.96)}.brand{text-decoration:none;font-size:1.15rem;font-weight:900}.brand small{margin-left:8px;color:#8b8e9d;font-size:.7rem;letter-spacing:.08em}.archive{display:inline-flex;min-height:44px;align-items:center;padding:8px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#615a80;font-size:.82rem;font-weight:800;text-decoration:none}.archive:focus-visible,.button:focus-visible{outline:3px solid #8d82e4;outline-offset:3px}
+    main{width:min(980px,calc(100% - 32px));margin:0 auto;padding:50px 0 64px}.card{padding:clamp(24px,5vw,50px);border:1px solid var(--line);border-radius:28px;background:rgba(255,255,255,.96);box-shadow:var(--shadow)}.eyebrow{margin:0;color:#8c83c0;font-size:.74rem;font-weight:900;letter-spacing:.13em}.version{display:inline-flex;margin-left:8px;padding:5px 9px;border-radius:999px;background:var(--violet-soft);color:#5d54ad;letter-spacing:0}.card h1{margin:.6rem 0 .9rem;font-size:clamp(2.15rem,6vw,4rem);line-height:1.05;letter-spacing:-.05em}.lead{max-width:760px;margin:0;color:var(--muted);font-size:1.02rem}.scope{margin:28px 0;padding:17px 19px;border:1px solid #d9d4ef;border-radius:16px;background:#f6f4ff;color:#625e77}.scope strong{color:#5349ae}.fixes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.fix{padding:20px;border:1px solid var(--line);border-radius:17px;background:#fff}.fix p{margin:0 0 8px;color:#8c85b9;font-size:.7rem;font-weight:900;letter-spacing:.1em}.fix h2{margin:0 0 7px;font-size:1.12rem}.fix span{color:var(--muted);font-size:.86rem}.paths{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:25px 0}.path{position:relative;padding:18px;border:1px solid #dae8e2;border-radius:15px;background:#f7fcfa}.path::after{position:absolute;top:50%;right:-8px;color:#8b87a0;content:"→";transform:translateY(-50%)}.path:last-child::after{display:none}.path b{display:block;color:#346f5d;font-size:.82rem}.path strong{display:block;margin:5px 0;color:#33394c;font-size:1.05rem}.path small{color:#7e8793}.unchanged{padding:22px;border-radius:18px;background:#303146;color:#fff}.unchanged h2{margin:0;font-size:1.25rem}.unchanged p{margin:.55rem 0 0;color:#d1d2dc;font-size:.87rem}.boundaries{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:20px}.boundary{padding:18px;border:1px solid var(--line);border-radius:15px;background:#fbfbfd}.boundary strong{display:block;margin-bottom:5px;color:#5b53ad}.boundary p{margin:0;color:var(--muted);font-size:.83rem}.notice{margin-top:20px;padding:17px 18px;border:1px solid #ead8b8;border-radius:15px;background:var(--gold-soft);color:#725a35;font-size:.85rem}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:8px 16px;border-radius:12px;font-weight:900;text-decoration:none}.primary{background:var(--violet);color:#fff}.secondary{border:1px solid var(--line);background:#fff;color:#5b5870}.foot{margin:25px 0 0;padding-top:18px;border-top:1px solid var(--line);color:#8b8e9d;font-size:.78rem}
+    @media(max-width:720px){.fixes,.boundaries{grid-template-columns:1fr}.paths{grid-template-columns:1fr}.path::after{top:auto;right:auto;bottom:-18px;left:50%;transform:translateX(-50%) rotate(90deg)}}@media(max-width:480px){.topbar{padding-inline:11px}.brand small{display:none}main{width:min(100% - 20px,480px);padding-top:26px}.card{padding:22px;border-radius:21px}.actions{display:grid}.button{width:100%}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media(forced-colors:active){.card,.fix,.path,.boundary{border:2px solid CanvasText}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="topbar"><a class="brand" href="../../">心伴 <small>AI-PET · v4.0.1</small></a><a class="archive" href="../../">返回全部版本</a></header>
+  <main id="main">
+    <article class="card">
+      <p class="eyebrow">COMPATIBILITY PATCH <span class="version">v4.0.1</span></p>
+      <h1>Qwen 北京三链路<br>联调修复</h1>
+      <p class="lead">这是 v4.0.0 上的兼容性小版本：只修复动态 TTS 音频域名兼容，并记录受控环境中 Qwen 文本、ASR 与 TTS 三条真实链路的联调结果。学生和教师界面沿用 v4.0.0。</p>
+
+      <div class="scope" role="note"><strong>固定说明页边界：</strong>本页不连接模型、麦克风、数据库或通知服务，也没有可提交表单。它不会播放真实云端音频，不包含任何服务凭据。</div>
+
+      <section class="fixes" aria-label="v4.0.1 修复内容">
+        <article class="fix"><p>FIX 01</p><h2>动态 TTS 音频域名兼容</h2><span>适配 Qwen 北京地域动态返回的音频地址，同时保留受限域名校验、HTTPS 约束和失败关闭。</span></article>
+        <article class="fix"><p>FIX 02</p><h2>ASR 时长字段兼容</h2><span>兼容当前响应中的 audio_tokens，同时保留上传前 30 秒限制与供应商计量复核；三条真实链路均已用虚构内容核对。</span></article>
+      </section>
+
+      <section class="paths" aria-label="Qwen 三链路">
+        <article class="path"><b>链路一</b><strong>Qwen 文本</strong><small>短中文回应与安全复核</small></article>
+        <article class="path"><b>链路二</b><strong>Qwen ASR</strong><small>限时语音转写后可编辑</small></article>
+        <article class="path"><b>链路三</b><strong>Qwen TTS</strong><small>学生主动点击后一次播放</small></article>
+      </section>
+
+      <section class="unchanged" aria-labelledby="unchanged-title"><h2 id="unchanged-title">界面与产品边界沿用 v4.0.0</h2><p>保留柔和紫色双栏学生端、匿名聚合教师工作台、可选一次 AI 建议、真人支持入口、短会话收束，以及不显示姓名和普通聊天原文的最少必要信息原则。</p></section>
+
+      <section class="boundaries" aria-label="部署与研究边界">
+        <article class="boundary"><strong>真实能力属于服务端</strong><p>模型与音频请求只由受保护的全栈服务发起；浏览器和 GitHub Pages 不持有服务凭据。</p></article>
+        <article class="boundary"><strong>联调不等于正式试点</strong><p>真实未成年人使用前仍需学校审批、知情同意、数据链路评估、教师值守和危机送达闭环。</p></article>
+      </section>
+
+      <div class="notice">本版本不是心理测评、诊断、治疗、自动转介或紧急服务。立即危险请联系现实中的可信任成人并拨打 110；突发伤病拨打 120。</div>
+
+      <div class="actions"><a class="button primary" href="../v4.0.0/">查看沿用的 v4.0.0 界面说明</a><a class="button secondary" href="../../">返回版本档案</a></div>
+      <p class="foot">心伴 AI-Pet v4.0.1 · 建立日期 2026-08-12 · 固定静态说明 · 不含真实学生数据</p>
+    </article>
+  </main>
+</body>
+</html>
