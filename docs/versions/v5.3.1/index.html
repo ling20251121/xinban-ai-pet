@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v5.3.1：成人合成学校沙盒的 Sites/workerd 密码派生兼容修复与线上验证边界。">
+  <title>心伴 AI-Pet v5.3.1 · 成人合成沙盒兼容修复</title>
+  <style>
+    :root{--ink:#283642;--muted:#667683;--blue:#356f87;--blue-dark:#28576b;--blue-soft:#e8f5fa;--mint:#267868;--mint-soft:#e7f7f1;--amber:#7c581e;--amber-soft:#fff5df;--rose:#8b485d;--rose-soft:#fff0f4;--line:#d8e1e6;--paper:#fff;--canvas:#f5fafb;--shadow:0 26px 70px rgba(35,86,105,.12)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 10% 10%,#dcf1f8 0,transparent 31%),radial-gradient(circle at 92% 15%,#dff4ec 0,transparent 28%),var(--canvas);line-height:1.72}a{color:inherit}.skip{position:fixed;top:8px;left:12px;z-index:20;transform:translateY(-150%);padding:9px 13px;border-radius:10px;background:var(--ink);color:#fff}.skip:focus{transform:none}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:76px;padding:12px max(22px,calc((100vw - 1060px)/2));border-bottom:1px solid var(--line);background:rgba(255,255,255,.96)}.brand{text-decoration:none;font-size:1.15rem;font-weight:900}.brand small{margin-left:8px;color:#7b8a94;font-size:.7rem;letter-spacing:.08em}.archive{display:inline-flex;min-height:44px;align-items:center;padding:8px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#4e6774;font-size:.82rem;font-weight:800;text-decoration:none}.archive:focus-visible,.button:focus-visible{outline:3px solid #76aec5;outline-offset:3px}
+    main{width:min(1060px,calc(100% - 32px));margin:0 auto;padding:50px 0 64px}.hero{position:relative;overflow:hidden;padding:clamp(25px,5vw,54px);border:1px solid var(--line);border-radius:31px;background:rgba(255,255,255,.97);box-shadow:var(--shadow)}.hero::after{position:absolute;top:-100px;right:-55px;width:270px;height:270px;border-radius:44% 56% 48% 52%;background:linear-gradient(145deg,#4b91aa,#54a68f);content:"";opacity:.14;transform:rotate(13deg)}.eyebrow{position:relative;z-index:1;margin:0;color:#507a8e;font-size:.74rem;font-weight:900;letter-spacing:.13em}.version{display:inline-flex;margin-left:8px;padding:5px 9px;border-radius:999px;background:var(--blue-soft);color:var(--blue-dark);letter-spacing:0}.hero h1{position:relative;z-index:1;margin:.6rem 0 .9rem;font-size:clamp(2.1rem,6vw,4rem);line-height:1.04;letter-spacing:-.045em}.lead{position:relative;z-index:1;max-width:850px;margin:0;color:var(--muted);font-size:1.02rem}.scope{margin:28px 0 0;padding:19px 21px;border:1px solid #e4c7d0;border-radius:17px;background:var(--rose-soft);color:#6f5260}.scope strong{color:var(--rose)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px;margin-top:24px}.panel{padding:22px;border:1px solid var(--line);border-radius:19px;background:#fff}.panel p{margin:0 0 8px;color:#4d7a8e;font-size:.7rem;font-weight:900;letter-spacing:.1em}.panel h2{margin:0 0 7px;font-size:1.13rem}.panel span{color:var(--muted);font-size:.86rem}.status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:22px}.state{padding:19px;border-radius:17px;background:#344650;color:#fff}.state strong{display:block;margin-bottom:4px}.state span{color:#dbe4e8;font-size:.82rem}.state.ok{background:var(--mint)}.state.wait{background:#7a5b2e}.notice{margin-top:22px;padding:18px 19px;border:1px solid #e7d2ab;border-radius:16px;background:var(--amber-soft);color:#70572e;font-size:.86rem}.notice strong{color:#704b14}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:27px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:8px 16px;border-radius:12px;font-weight:900;text-decoration:none}.primary{background:var(--blue);color:#fff}.secondary{border:1px solid var(--line);background:#fff;color:#506671}.foot{margin:25px 0 0;padding-top:18px;border-top:1px solid var(--line);color:#82909a;font-size:.78rem}
+    @media(max-width:850px){.status{grid-template-columns:1fr 1fr}.state.wait{grid-column:1/-1}}@media(max-width:620px){.grid,.status{grid-template-columns:1fr}.state.wait{grid-column:auto}}@media(max-width:480px){.topbar{padding-inline:11px}.brand small{display:none}main{width:min(100% - 20px,480px);padding-top:26px}.hero{padding:22px;border-radius:21px}.actions{display:grid}.button{width:100%}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media(forced-colors:active){.hero,.panel{border:2px solid CanvasText}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="topbar"><a class="brand" href="../../">心伴 <small>AI-PET · v5.3.1</small></a><a class="archive" href="../../">返回全部版本</a></header>
+  <main id="main">
+    <article class="hero">
+      <p class="eyebrow">ADULT SYNTHETIC SANDBOX · COMPATIBILITY PATCH <span class="version">v5.3.1</span></p>
+      <h1>线上沙盒已跑通，<br>验证边界也写清楚。</h1>
+      <p class="lead">v5.3.1 修复 Sites/workerd 对单次 PBKDF2 调用不超过 100,000 次的限制。密码派生改为带版本标记的三段串行 KDF，每段 70,000 次，总工作因子保持 210,000 次；上一段输出作为下一段输入，不能作为三个互不相关的并行哈希处理。</p>
+
+      <div class="scope" role="note"><strong>只允许 18 岁以上成人进行合成测试：</strong>成人可扮演固定虚构学生或虚构教师，检查账号、心情、对话入口、语音入口与模拟处置流程；不得录入真实学生、学校或联系人信息，也不得把沙盒记录称为真实学生研究结果。</div>
+
+      <section class="grid" aria-label="本版本变更与验证">
+        <article class="panel"><p>KDF COMPATIBILITY</p><h2>3 × 70,000 次串行派生</h2><span>新密码盐带有版本标记；新版本使用兼容 workerd 上限的分段派生，同时保留 210,000 次配置工作因子。旧的固定版本文件不被覆盖。</span></article>
+        <article class="panel"><p>ONLINE BOOTSTRAP</p><h2>1 教师 · 1 班级 · 3 学生</h2><span>成人合成沙盒线上初始化成功；三个学生仍对应固定虚构起始情境，所有学校域数据只允许 synthetic=1。</span></article>
+        <article class="panel"><p>ACCOUNT CHECK</p><h2>学生与教师登录已验证</h2><span>成人确认和完全合成数据承诺仍是登录门槛。学生账号与教师账号均已在部署环境完成登录检查。</span></article>
+        <article class="panel"><p>TEACHER QUEUE</p><h2>模拟安全队列已验证</h2><span>虚构教师可以读取合成班级的最少必要模拟线索。该队列不代表真实通知送达、真人值守或学校危机处置。</span></article>
+      </section>
+
+      <section class="status" aria-label="线上验证状态">
+        <article class="state ok"><strong>已验证</strong><span>合成初始化、学生登录、教师登录、模拟安全队列。</span></article>
+        <article class="state"><strong>失败关闭</strong><span>缺少服务端模型密钥时，不使用虚拟回复冒充真实 AI 或语音结果。</span></article>
+        <article class="state wait"><strong>尚未声称成功</strong><span>当前线上环境尚未配置 Qwen API Key，因此 AI 连续对话、Qwen ASR 和 Qwen TTS 均未完成线上成功验证。</span></article>
+      </section>
+
+      <div class="notice"><strong>固定归档边界：</strong>本页是无表单、无脚本、无网络请求、无浏览器存储的静态说明。它不包含测试账号、管理员口令、API Key、音频、对话、处置记录或研究结果，也不是可操作的沙盒登录入口。</div>
+
+      <div class="actions"><a class="button primary" href="../../">返回版本档案</a><a class="button secondary" href="../v5.3.0/">查看上一固定版本</a></div>
+      <p class="foot">心伴 AI-Pet v5.3.1 · 建立日期 2026-08-12 · 固定静态说明 · 无网络、无表单、无脚本、无存储、无凭据</p>
+    </article>
+  </main>
+</body>
+</html>
