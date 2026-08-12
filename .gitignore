@@ -31,6 +31,8 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+/deploy/.env
+/deploy/access-codes.txt
 
 # vercel
 .vercel

@@ -1,0 +1,134 @@
+name: xinban-ai-pet
+
+x-app-environment: &app-environment
+  AI_PROVIDER: ${AI_PROVIDER}
+  QWEN_API_KEY: ${QWEN_API_KEY}
+  QWEN_BASE_URL: ${QWEN_BASE_URL}
+  QWEN_MODEL: ${QWEN_MODEL}
+  QWEN_ASR_MODEL: ${QWEN_ASR_MODEL}
+  QWEN_TTS_MODEL: ${QWEN_TTS_MODEL}
+  DATABASE_URL: postgresql://xinban:${POSTGRES_PASSWORD}@postgres:5432/xinban
+  DATABASE_CA_FILE: /run/postgres-ca/ca.crt
+  DATABASE_TLS_SERVER_NAME: postgres
+  DATABASE_ALLOW_INSECURE_LOCAL: "false"
+  PUBLIC_DEMO_MODE: ${PUBLIC_DEMO_MODE}
+  ADULT_EVALUATION_ONLY: ${ADULT_EVALUATION_ONLY}
+  SANDBOX_MODE: ${SANDBOX_MODE}
+  SANDBOX_ADMIN_KEY: ${SANDBOX_ADMIN_KEY}
+  EVALUATION_TEACHER_CODES: ${EVALUATION_TEACHER_CODES}
+  EVALUATION_EXPERT_CODES: ${EVALUATION_EXPERT_CODES}
+  RESEARCH_ACCESS_KEY: ${RESEARCH_ACCESS_KEY}
+  EVALUATION_RESEARCHER_NAME: ${EVALUATION_RESEARCHER_NAME}
+  EVALUATION_CONTACT: ${EVALUATION_CONTACT}
+  EVALUATION_ETHICS_STATUS: ${EVALUATION_ETHICS_STATUS}
+  EVALUATION_RETENTION_DAYS: ${EVALUATION_RETENTION_DAYS}
+  EVALUATION_DATA_HOST: ${EVALUATION_DATA_HOST}
+  VINEXT_TRUSTED_HOSTS: ${SITE_HOSTNAME}
+
+services:
+  tls-init:
+    image: alpine:3.22
+    command: ["/bin/sh", "-c", "apk add --no-cache openssl >/dev/null && /init-tls.sh"]
+    volumes:
+      - postgres_tls:/tls
+      - postgres_ca:/ca
+      - ./postgres/init-tls.sh:/init-tls.sh:ro
+    restart: "no"
+    networks: [database]
+
+  postgres:
+    image: postgres:16-alpine
+    depends_on:
+      tls-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: xinban
+      POSTGRES_USER: xinban
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/run/postgres-tls/server.crt
+      - -c
+      - ssl_key_file=/run/postgres-tls/server.key
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=40
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xinban -d xinban"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - postgres_tls:/run/postgres-tls:ro
+    restart: unless-stopped
+    mem_limit: 512m
+    networks: [database]
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: xinban-ai-pet:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-environment
+    command: ["node", "--conditions=react-server", "scripts/migrate-postgres.mjs"]
+    volumes:
+      - postgres_ca:/run/postgres-ca:ro
+    restart: "no"
+    mem_limit: 512m
+    networks: [database]
+
+  app:
+    image: xinban-ai-pet:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment: *app-environment
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_ca:/run/postgres-ca:ro
+    restart: unless-stopped
+    mem_limit: 700m
+    networks: [edge, database]
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      SITE_HOSTNAME: ${SITE_HOSTNAME}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    mem_limit: 128m
+    networks: [edge]
+
+volumes:
+  postgres_data:
+  postgres_tls:
+  postgres_ca:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:
+  database:
+    internal: true

@@ -1095,7 +1095,7 @@ export default function StudentCompanion() {
           <p className="eyebrow">首次使用说明</p>
           <h1 id="consent-title">在开始前，请先了解这些边界</h1>
           <p className="consent-lead">
-            本演示用于测试合成心情记录，并在你主动选择时提供短时 AI 对话。它不是心理诊断，也不能代替老师、家长、医生或紧急服务。
+            本演示用于测试合成心情记录，并在你主动选择时提供可持续多轮的情绪表达与梳理对话。它不是心理咨询、诊断或治疗，也不能代替老师、家长、医生或紧急服务。
           </p>
           <div className={`guardian-status ${user.guardianConsentVerified ? "is-verified" : "is-blocked"}`}>
             <strong>模拟前置状态：{user.guardianConsentVerified ? "已开启" : "尚未开启"}</strong>
@@ -1377,8 +1377,8 @@ export default function StudentCompanion() {
                   <span><strong>测试“请求老师支持”</strong><small>这会进入模拟教师处置队列，不会联系任何真实学生或学校。</small></span>
                 </label>
                 <label className="check-row">
-                  <input aria-label="保存后进入一次短时 AI 对话" type="checkbox" checked={wantsAi} onChange={(event) => setWantsAi(event.target.checked)} />
-                  <span><strong>保存后进入一次短时 AI 对话</strong><small>最多 15 分钟或 12 轮；合成内容可能发送给演示配置的 Qwen 北京模型。</small></span>
+                  <input aria-label="保存后进入持续多轮 AI 对话" type="checkbox" checked={wantsAi} onChange={(event) => setWantsAi(event.target.checked)} />
+                  <span><strong>保存后进入持续多轮 AI 对话</strong><small>最多 15 分钟或 12 个学生回合；合成内容可能发送给演示配置的 Qwen 北京模型。</small></span>
                 </label>
               </div>
 
@@ -1395,7 +1395,7 @@ export default function StudentCompanion() {
           <section className="conversation-shell" aria-labelledby="conversation-title">
             <aside className="conversation-pet">
               <Image src="/dog.svg" alt="小伴 AI 小狗形象" width={218} height={218} />
-              <p className="eyebrow">短时陪伴</p>
+              <p className="eyebrow">多轮表达与梳理</p>
               <h2>一起把这一刻说清一点</h2>
               <p>小伴不会替你做决定。你随时可以结束、删除，或转向真人。</p>
               <a className="human-button" href="#human-support-card">找真人支持</a>

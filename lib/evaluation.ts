@@ -6,6 +6,9 @@ import {
   CONTEXT_JUDGMENT_OPTIONS,
   CRITICAL_HARM_FLAG_LABELS,
   CRITICAL_HARM_FLAG_OPTIONS,
+  DIALOGUE_EVALUATION_CASE_IDS,
+  DIALOGUE_PACK_VERSION,
+  DIALOGUE_PROMPT_VERSION,
   EVIDENCE_SOURCE_LABELS,
   EVIDENCE_SOURCE_OPTIONS,
   EXPERT_REFERENCE_EVIDENCE_OPTIONS,
@@ -18,13 +21,14 @@ import {
   SCENARIO_PACK_VERSION,
   SYNTHETIC_EVALUATION_CASES,
   type EvaluationAction,
+  isDialogueEvaluationCase,
   publicScenario,
 } from "@/lib/evaluation-cases";
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
 import type { SystemDatabase } from "@/lib/database-types";
 
-export const EVALUATION_CONSENT_VERSION = "adult-evaluation-2026-08-v1";
+export const EVALUATION_CONSENT_VERSION = "adult-evaluation-dialogue-2026-08-v2";
 const COOKIE = "xinban_evaluation";
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
 const encoder = new TextEncoder();
@@ -43,7 +47,7 @@ interface EvaluationRuntime {
   EVALUATION_DATA_HOST?: string;
 }
 
-interface ParticipantRow {
+export interface ParticipantRow {
   id: string;
   participant_code: string;
   role: EvaluatorRole;
@@ -105,13 +109,29 @@ const TABLES = [
     workload_score INTEGER NOT NULL CHECK (workload_score BETWEEN 0 AND 100),
     feedback TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS evaluation_dialogues (
+    participant_id TEXT NOT NULL, scenario_id TEXT NOT NULL,
+    dialogue_pack_version TEXT NOT NULL, dialogue_prompt_version TEXT NOT NULL,
+    model_id TEXT, status TEXT NOT NULL DEFAULT 'ready'
+      CHECK (status IN ('ready','in_flight','completed')),
+    next_turn INTEGER NOT NULL DEFAULT 0 CHECK (next_turn BETWEEN 0 AND 3),
+    lease_token TEXT, lease_started_at TEXT,
+    transcript_json TEXT NOT NULL DEFAULT '[]', provider_metadata_json TEXT NOT NULL DEFAULT '[]',
+    total_latency_ms INTEGER NOT NULL DEFAULT 0 CHECK (total_latency_ms >= 0),
+    safety_ended INTEGER NOT NULL DEFAULT 0 CHECK (safety_ended IN (0,1)),
+    rating_json TEXT, rating_token TEXT,
+    must_revise INTEGER CHECK (must_revise IS NULL OR must_revise IN (0,1)),
+    harm_flags_json TEXT, started_at TEXT, completed_at TEXT, rated_at TEXT, updated_at TEXT NOT NULL,
+    PRIMARY KEY(participant_id,scenario_id)
+  )`,
   "CREATE INDEX IF NOT EXISTS idx_eval_response_participant ON evaluation_scenario_responses (participant_id,scenario_id)",
   "CREATE INDEX IF NOT EXISTS idx_eval_participant_role ON evaluation_participants (role,submitted_at)",
+  "CREATE INDEX IF NOT EXISTS idx_eval_dialogue_participant ON evaluation_dialogues (participant_id,scenario_id)",
 ] as const;
 
 const ready = new WeakMap<object, Promise<void>>();
 
-async function database(): Promise<SystemDatabase> {
+export async function evaluationDatabase(): Promise<SystemDatabase> {
   const value = await getSystemDatabase();
   // PostgreSQL schema changes are applied only by the reviewed 0001/0002
   // administrative migrations. The restricted application role must never
@@ -274,7 +294,7 @@ export function publicEvaluationInformation() {
   if (researcher.length < 2 || contact.length < 5 || ethicsStatus.length < 2 || storage.length < 5 || !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
     throw new ApiError(503, "成人评估研究说明尚未完整配置，暂不开放数据收集。");
   }
-  return { researcher, contact, ethicsStatus, retentionDays, purpose: "评估心伴 AI-Pet 原型在固定合成学生情境中的可用性、决策支持和安全边界", duration: "约 25–35 分钟", compensation: "无报酬", risks: "可能产生轻微疲劳或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
+  return { researcher, contact, ethicsStatus, retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、教师决策支持和安全边界", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的多轮 AI 对话，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
 }
 
 export async function startEvaluation(request: Request, input: {
@@ -297,7 +317,7 @@ export async function startEvaluation(request: Request, input: {
   const role = matchedRoles[0];
   if (input.role != null && roleValue(input.role) !== role) throw new ApiError(403, "评估者角色由访问码决定，不能手动更改。");
   const accessHash = await hash(`${role}:${supplied}`);
-  const db = await database();
+  const db = await evaluationDatabase();
   const alreadyUsed = await db.prepare("SELECT access_code_hash FROM evaluation_used_codes WHERE access_code_hash=?").bind(accessHash).first();
   if (alreadyUsed) throw new ApiError(409, "这个一次性访问码已使用；请向研究者领取新码。已开始的评估可在本设备继续。");
 
@@ -324,7 +344,7 @@ export async function startEvaluation(request: Request, input: {
 export async function requireEvaluation(request: Request, updateLastSeen = true): Promise<ParticipantRow> {
   const raw = cookieToken(request);
   if (!raw) throw new ApiError(401, "请使用评估访问码进入。");
-  const db = await database();
+  const db = await evaluationDatabase();
   const row = await db.prepare(`SELECT id,participant_code,role,experience_band,sequence_group,
       consent_version,quote_consent,started_at,submitted_at,withdrawn_at,data_deleted_at
     FROM evaluation_participants WHERE session_token_hash=?`).bind(await hash(raw)).first<ParticipantRow>();
@@ -335,12 +355,9 @@ export async function requireEvaluation(request: Request, updateLastSeen = true)
   return row;
 }
 
-export async function requireCompletedEvaluationLiveDemo(
-  request: Request,
-): Promise<void> {
-  const participant = await requireEvaluation(request, false);
-  if (!participant.submitted_at) {
-    throw new ApiError(409, "请先完成并提交全部正式评估，再进入独立的实时 AI 演示区。");
+export function requireCurrentEvaluationConsent(participant: ParticipantRow): void {
+  if (participant.consent_version !== EVALUATION_CONSENT_VERSION) {
+    throw new ApiError(409, "评估说明已更新并新增多轮 Qwen 对话保存与评价。旧会话不能继续写入；请联系研究者领取新版访问码。你仍可撤回旧数据。");
   }
 }
 
@@ -350,7 +367,7 @@ export function conditionFor(sequence: "A" | "B", order: number): "dashboard_onl
 
 export async function evaluationState(request: Request) {
   const participant = await requireEvaluation(request);
-  const db = await database();
+  const db = await evaluationDatabase();
   const responses = await db.prepare(`SELECT scenario_id,study_condition,chosen_action,
       evidence_selected_json,context_judgment,reason_codes_json,privacy_choice,confidence,
       quality_json,must_revise,critical_harm_flags_json,decision_time_ms,updated_at
@@ -363,10 +380,34 @@ export async function evaluationState(request: Request) {
       .bind(participant.id).all<Record<string, unknown>>()
     : { results: [] as Record<string, unknown>[] };
   const referenceMap = new Map(references.results.map((row) => [String(row.scenario_id), row]));
+  const dialogueRows = await db.prepare(`SELECT scenario_id,dialogue_pack_version,dialogue_prompt_version,
+      model_id,status,next_turn,transcript_json,total_latency_ms,safety_ended,rating_json,
+      must_revise,harm_flags_json,completed_at,rated_at
+    FROM evaluation_dialogues WHERE participant_id=?`).bind(participant.id).all<Record<string, unknown>>();
+  const dialogueMap = new Map(dialogueRows.results.map((row) => [String(row.scenario_id), row]));
   const scenarios = SYNTHETIC_EVALUATION_CASES.map((scenario) => ({
     ...publicScenario(scenario, participant.role === "teacher" || referenceMap.has(scenario.id)),
     condition: participant.role === "expert" ? "expert_blind" : conditionFor(participant.sequence_group, scenario.order),
     completed: done.has(scenario.id),
+    dialogueRequired: isDialogueEvaluationCase(scenario.id),
+    dialogue: isDialogueEvaluationCase(scenario.id) ? (() => {
+      const row = dialogueMap.get(scenario.id);
+      const transcript = row ? JSON.parse(String(row.transcript_json ?? "[]")) : [];
+      return {
+        messages: transcript,
+        nextTurn: Number(row?.next_turn ?? 0),
+        completed: row?.status === "completed",
+        sealed: Boolean(row?.rated_at),
+        modelId: row?.model_id ?? null,
+        dialoguePackVersion: String(row?.dialogue_pack_version ?? DIALOGUE_PACK_VERSION),
+        promptVersion: String(row?.dialogue_prompt_version ?? DIALOGUE_PROMPT_VERSION),
+        totalLatencyMs: Number(row?.total_latency_ms ?? 0),
+        safetyEnded: Boolean(row?.safety_ended),
+        rating: row?.rating_json ? JSON.parse(String(row.rating_json)) : null,
+        mustRevise: row?.must_revise == null ? null : Boolean(row.must_revise),
+        harmFlags: row?.harm_flags_json ? JSON.parse(String(row.harm_flags_json)) : null,
+      };
+    })() : null,
     expertReference: referenceMap.has(scenario.id) ? {
       action: referenceMap.get(scenario.id)?.reference_action,
       evidenceSelected: JSON.parse(String(referenceMap.get(scenario.id)?.reference_evidence_json ?? "[]")),
@@ -383,8 +424,11 @@ export async function evaluationState(request: Request) {
       role: participant.role,
       experienceBand: participant.experience_band,
       submitted: Boolean(participant.submitted_at),
+      consentCurrent: participant.consent_version === EVALUATION_CONSENT_VERSION,
     },
-    versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION, prompt: PROMPT_VERSION },
+    versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION, prompt: PROMPT_VERSION,
+      dialoguePack: DIALOGUE_PACK_VERSION, dialoguePrompt: DIALOGUE_PROMPT_VERSION,
+      dialogueCases: DIALOGUE_EVALUATION_CASE_IDS },
     scenarios,
     responses: responses.results,
     actionLabels: ACTION_LABELS,
@@ -401,6 +445,7 @@ export async function evaluationState(request: Request) {
 
 export async function freezeExpertReference(request: Request, input: Record<string, unknown>) {
   const participant = await requireEvaluation(request);
+  requireCurrentEvaluationConsent(participant);
   if (participant.submitted_at) throw new ApiError(409, "评估已经提交，不能再修改。");
   if (participant.role !== "expert") throw new ApiError(403, "仅专家评估流需要冻结独立参考行动。");
   const scenario = SYNTHETIC_EVALUATION_CASES.find((item) => item.id === input.scenarioId);
@@ -411,7 +456,7 @@ export async function freezeExpertReference(request: Request, input: Record<stri
   const referenceReasons = reasonCodes(input.referenceReasonCodes);
   const referencePrivacy = privacyChoice(input.referencePrivacyChoice);
   const referenceConfidence = likert(input.referenceConfidence);
-  const db = await database();
+  const db = await evaluationDatabase();
   const existing = await db.prepare(`SELECT reference_action,reference_evidence_json,
       reference_context_judgment,reference_reason_codes_json,reference_privacy_choice,reference_confidence
     FROM evaluation_expert_references WHERE participant_id=? AND scenario_id=?`)
@@ -436,6 +481,7 @@ export async function freezeExpertReference(request: Request, input: Record<stri
 
 export async function saveScenarioResponse(request: Request, input: Record<string, unknown>) {
   const participant = await requireEvaluation(request);
+  requireCurrentEvaluationConsent(participant);
   if (participant.submitted_at) throw new ApiError(409, "评估已经提交，不能再修改。");
   const scenario = SYNTHETIC_EVALUATION_CASES.find((item) => item.id === input.scenarioId);
   if (!scenario) throw new ApiError(404, "合成案例不存在。");
@@ -443,11 +489,34 @@ export async function saveScenarioResponse(request: Request, input: Record<strin
     throw new ApiError(400, "正式案例不接收自由文本判断；请使用固定证据、理由和隐私选项。");
   }
   const chosenAction = actionValue(input.chosenAction);
-  const db = await database();
+  const db = await evaluationDatabase();
   const expertReference = participant.role === "expert"
     ? await db.prepare("SELECT reference_action FROM evaluation_expert_references WHERE participant_id=? AND scenario_id=?").bind(participant.id, scenario.id).first<{ reference_action: string }>()
     : null;
   if (participant.role === "expert" && !expertReference) throw new ApiError(409, "请先冻结独立参考行动，再评价 AI 输出。");
+  let dialogueRating: Record<string, number> | null = null;
+  let dialogueMustRevise: number | null = null;
+  let dialogueHarmFlags: CriticalHarmFlag[] | null = null;
+  if (isDialogueEvaluationCase(scenario.id)) {
+    const dialogue = await db.prepare(`SELECT status,rated_at FROM evaluation_dialogues
+      WHERE participant_id=? AND scenario_id=?`).bind(participant.id, scenario.id)
+      .first<{ status: string; rated_at: string | null }>();
+    if (!dialogue || dialogue.status !== "completed") {
+      throw new ApiError(409, "请先完成本案例的固定合成 AI-Pet 多轮对话，再提交案例评价。");
+    }
+    const dialogueQualityKeys = ["warmth", "relevance", "continuity", "expressionSupport",
+      "emotionClarification", "ageAppropriate", "boundaryAndHumanSupport"] as const;
+    dialogueRating = Object.fromEntries(dialogueQualityKeys.map((key) => [
+      key,
+      likert((input.dialogueQuality as Record<string, unknown> | undefined)?.[key]),
+    ]));
+    if (typeof input.dialogueMustRevise !== "boolean") {
+      throw new ApiError(400, "请选择该多轮对话是否必须修改。");
+    }
+    dialogueMustRevise = input.dialogueMustRevise ? 1 : 0;
+    dialogueHarmFlags = harmFlags(input.dialogueHarmFlags);
+    if (dialogue.rated_at) throw new ApiError(409, "该多轮对话评价已经封存，不能修改。");
+  }
   const condition = participant.role === "expert" ? "expert_blind" : conditionFor(participant.sequence_group, scenario.order);
   const time = Number(input.decisionTimeMs);
   if (!Number.isInteger(time) || time < 250 || time > 3_600_000) throw new ApiError(400, "案例用时无效。");
@@ -466,7 +535,7 @@ export async function saveScenarioResponse(request: Request, input: Record<strin
   if (participant.role === "expert" && mustRevise === null) throw new ApiError(400, "请选择冻结 AI 输出是否必须修改。");
   const criticalFlags = participant.role === "expert" ? harmFlags(input.criticalHarmFlags) : null;
   const now = new Date().toISOString();
-  await db.prepare(`INSERT INTO evaluation_scenario_responses
+  const responseStatement = db.prepare(`INSERT INTO evaluation_scenario_responses
     (id,participant_id,scenario_id,study_condition,scenario_pack_version,output_version,prompt_version,
       chosen_action,evidence_selected_json,context_judgment,reason_codes_json,privacy_choice,confidence,
       quality_json,must_revise,critical_harm_flags_json,decision_time_ms,created_at,updated_at)
@@ -480,7 +549,35 @@ export async function saveScenarioResponse(request: Request, input: Record<strin
     .bind(crypto.randomUUID(), participant.id, scenario.id, condition, SCENARIO_PACK_VERSION,
       FROZEN_OUTPUT_VERSION, PROMPT_VERSION, chosenAction, evidence ? JSON.stringify(evidence) : null,
       context, reasons ? JSON.stringify(reasons) : null, privacy, confidence, JSON.stringify(quality),
-      mustRevise, criticalFlags ? JSON.stringify(criticalFlags) : null, time, now, now).run();
+      mustRevise, criticalFlags ? JSON.stringify(criticalFlags) : null, time, now, now);
+  if (isDialogueEvaluationCase(scenario.id)) {
+    const ratingToken = crypto.randomUUID();
+    const responseFromSealedDialogue = db.prepare(`INSERT INTO evaluation_scenario_responses
+      (id,participant_id,scenario_id,study_condition,scenario_pack_version,output_version,prompt_version,
+       chosen_action,evidence_selected_json,context_judgment,reason_codes_json,privacy_choice,confidence,
+       quality_json,must_revise,critical_harm_flags_json,decision_time_ms,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM evaluation_dialogues
+      WHERE participant_id=? AND scenario_id=? AND rating_token=?`)
+      .bind(crypto.randomUUID(), participant.id, scenario.id, condition, SCENARIO_PACK_VERSION,
+        FROZEN_OUTPUT_VERSION, PROMPT_VERSION, chosenAction, evidence ? JSON.stringify(evidence) : null,
+        context, reasons ? JSON.stringify(reasons) : null, privacy, confidence, JSON.stringify(quality),
+        mustRevise, criticalFlags ? JSON.stringify(criticalFlags) : null, time, now, now,
+        participant.id, scenario.id, ratingToken);
+    const results = await db.batch([
+      db.prepare(`UPDATE evaluation_dialogues SET rating_json=?,rating_token=?,must_revise=?,
+      harm_flags_json=?,rated_at=?,updated_at=? WHERE participant_id=? AND scenario_id=?
+      AND status='completed' AND rated_at IS NULL`).bind(
+        JSON.stringify(dialogueRating), ratingToken, dialogueMustRevise, JSON.stringify(dialogueHarmFlags),
+        now, now, participant.id, scenario.id,
+      ),
+      responseFromSealedDialogue,
+    ]);
+    if (Number(results[0]?.meta.changes ?? 0) !== 1 || Number(results[1]?.meta.changes ?? 0) !== 1) {
+      throw new ApiError(409, "该多轮对话评价已封存或尚未完成。");
+    }
+  } else {
+    await responseStatement.run();
+  }
   return { saved: true, scenarioId: scenario.id };
 }
 
@@ -499,12 +596,19 @@ export function calculateSus(items: number[]): number {
 
 export async function submitSurvey(request: Request, input: Record<string, unknown>) {
   const participant = await requireEvaluation(request);
+  requireCurrentEvaluationConsent(participant);
   if (participant.submitted_at) throw new ApiError(409, "评估已经提交，不能重复提交。");
   const sus = Array.isArray(input.sus) ? input.sus.map(Number) : [];
   calculateSus(sus);
-  const db = await database();
+  const db = await evaluationDatabase();
   const completed = await db.prepare("SELECT COUNT(*) count FROM evaluation_scenario_responses WHERE participant_id=?").bind(participant.id).first<{ count: number }>();
   if (Number(completed?.count ?? 0) !== SYNTHETIC_EVALUATION_CASES.length) throw new ApiError(409, "请先完成全部 12 个合成案例。");
+  const dialogueCompleted = await db.prepare(`SELECT COUNT(*) count FROM evaluation_dialogues
+    WHERE participant_id=? AND status='completed' AND rated_at IS NOT NULL`)
+    .bind(participant.id).first<{ count: number }>();
+  if (Number(dialogueCompleted?.count ?? 0) !== DIALOGUE_EVALUATION_CASE_IDS.length) {
+    throw new ApiError(409, "请先完成并评价 5 个固定合成多轮对话案例。");
+  }
   const now = new Date().toISOString();
   const workload = Number(input.workload);
   if (!Number.isInteger(workload) || workload < 0 || workload > 100) throw new ApiError(400, "工作负荷需为 0–100 的整数。");
@@ -522,10 +626,11 @@ export async function submitSurvey(request: Request, input: Record<string, unkno
 
 export async function withdrawEvaluation(request: Request): Promise<void> {
   const participant = await requireEvaluation(request);
-  const db = await database();
+  const db = await evaluationDatabase();
   await db.batch([
     db.prepare("DELETE FROM evaluation_surveys WHERE participant_id=?").bind(participant.id),
     db.prepare("DELETE FROM evaluation_scenario_responses WHERE participant_id=?").bind(participant.id),
+    db.prepare("DELETE FROM evaluation_dialogues WHERE participant_id=?").bind(participant.id),
     db.prepare("DELETE FROM evaluation_expert_references WHERE participant_id=?").bind(participant.id),
     db.prepare("DELETE FROM evaluation_participants WHERE id=?").bind(participant.id),
   ]);
@@ -548,7 +653,7 @@ type AggregateRow = { role: EvaluatorRole; participants: number; completed: numb
 
 export async function researchSummary(request: Request) {
   requireResearcher(request);
-  const db = await database();
+  const db = await evaluationDatabase();
   const rows = await db.prepare(`SELECT p.role, COUNT(DISTINCT p.id) participants,
       COUNT(DISTINCT CASE WHEN p.submitted_at IS NOT NULL THEN p.id END) completed,
       AVG(r.decision_time_ms) avg_time_ms, AVG(s.trust_score) avg_trust,
@@ -582,7 +687,9 @@ export async function researchSummary(request: Request) {
     minimumGroupSize: 5,
     groups: groups.filter((row) => row.completed >= 5),
     suppressedGroups: groups.filter((row) => row.completed < 5).map((row) => row.role),
-    versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION, prompt: PROMPT_VERSION },
+    versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION,
+      prompt: PROMPT_VERSION, dialoguePack: DIALOGUE_PACK_VERSION,
+      dialoguePrompt: DIALOGUE_PROMPT_VERSION, dialogueCases: DIALOGUE_EVALUATION_CASE_IDS },
   };
 }
 
@@ -593,24 +700,32 @@ function csvCell(value: unknown): string {
 
 export async function researchCsv(request: Request): Promise<string> {
   requireResearcher(request);
-  const db = await database();
+  const db = await evaluationDatabase();
   const rows = await db.prepare(`SELECT p.participant_code,p.role,p.experience_band,p.sequence_group,
       p.consent_version,p.quote_consent,p.scenario_pack_version,p.output_version,p.prompt_version,p.started_at,p.submitted_at,
-      COALESCE(r.scenario_id,er.scenario_id) scenario_id,r.study_condition,r.chosen_action,r.evidence_selected_json,r.context_judgment,
+      COALESCE(r.scenario_id,er.scenario_id,d.scenario_id) scenario_id,r.study_condition,r.chosen_action,r.evidence_selected_json,r.context_judgment,
       r.reason_codes_json,r.privacy_choice,r.confidence,r.quality_json,r.must_revise,
       r.critical_harm_flags_json,r.decision_time_ms,r.updated_at,
       er.reference_action,er.reference_evidence_json,er.reference_context_judgment,
       er.reference_reason_codes_json,er.reference_privacy_choice,er.reference_confidence,er.frozen_at,
+      d.dialogue_pack_version,d.dialogue_prompt_version,d.model_id dialogue_model_id,
+      d.status dialogue_status,d.next_turn dialogue_next_turn,d.transcript_json dialogue_transcript_json,
+      d.provider_metadata_json dialogue_provider_metadata_json,d.total_latency_ms dialogue_total_latency_ms,
+      d.safety_ended dialogue_safety_ended,d.rating_json dialogue_rating_json,
+      d.must_revise dialogue_must_revise,d.harm_flags_json dialogue_harm_flags_json,
+      d.started_at dialogue_started_at,d.completed_at dialogue_completed_at,d.rated_at dialogue_rated_at,
       s.sus_json,s.trust_score,s.appropriateness_score,s.usability_score,s.safety_boundary_score,s.workload_score,s.feedback
     FROM evaluation_participants p
     LEFT JOIN (
       SELECT participant_id,scenario_id FROM evaluation_scenario_responses
       UNION SELECT participant_id,scenario_id FROM evaluation_expert_references
+      UNION SELECT participant_id,scenario_id FROM evaluation_dialogues
     ) cases ON cases.participant_id=p.id
     LEFT JOIN evaluation_scenario_responses r ON r.participant_id=p.id AND r.scenario_id=cases.scenario_id
     LEFT JOIN evaluation_expert_references er ON er.participant_id=p.id AND er.scenario_id=cases.scenario_id
+    LEFT JOIN evaluation_dialogues d ON d.participant_id=p.id AND d.scenario_id=cases.scenario_id
     LEFT JOIN evaluation_surveys s ON s.participant_id=p.id
-    WHERE p.data_deleted_at IS NULL ORDER BY p.participant_code,COALESCE(r.scenario_id,er.scenario_id)`).all<Record<string, unknown>>();
-  const headers = ["participant_code","role","experience_band","sequence_group","consent_version","quote_consent","scenario_pack_version","output_version","prompt_version","started_at","submitted_at","scenario_id","study_condition","chosen_action","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","decision_time_ms","updated_at","reference_action","reference_evidence_json","reference_context_judgment","reference_reason_codes_json","reference_privacy_choice","reference_confidence","frozen_at","sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score","workload_score","feedback"];
+    WHERE p.data_deleted_at IS NULL ORDER BY p.participant_code,COALESCE(r.scenario_id,er.scenario_id,d.scenario_id)`).all<Record<string, unknown>>();
+  const headers = ["participant_code","role","experience_band","sequence_group","consent_version","quote_consent","scenario_pack_version","output_version","prompt_version","started_at","submitted_at","scenario_id","study_condition","chosen_action","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","decision_time_ms","updated_at","reference_action","reference_evidence_json","reference_context_judgment","reference_reason_codes_json","reference_privacy_choice","reference_confidence","frozen_at","dialogue_pack_version","dialogue_prompt_version","dialogue_model_id","dialogue_status","dialogue_next_turn","dialogue_transcript_json","dialogue_provider_metadata_json","dialogue_total_latency_ms","dialogue_safety_ended","dialogue_rating_json","dialogue_must_revise","dialogue_harm_flags_json","dialogue_started_at","dialogue_completed_at","dialogue_rated_at","sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score","workload_score","feedback"];
   return `\uFEFF${headers.join(",")}\n${rows.results.map((row) => headers.map((key) => csvCell(row[key])).join(",")).join("\n")}`;
 }

@@ -14,6 +14,7 @@ const STUDY_BINDINGS = {
   EVALUATION_ETHICS_STATUS: "Protocol pending; formative prototype feedback only",
   EVALUATION_RETENTION_DAYS: "365",
   EVALUATION_DATA_HOST: "Protected synthetic-evaluation database in a test region",
+  QWEN_API_KEY: "test-qwen-key",
 };
 const decision = {
   chosenAction: "brief_check_in",
@@ -33,6 +34,8 @@ const reference = {
   referenceConfidence: 4,
 };
 const quality = { warmth: 4, relevance: 5, ageAppropriate: 4, nonDiagnostic: 5, evidence: 4, privacySafety: 5, actionProportionality: 4 };
+const dialogueQuality = { warmth: 4, relevance: 5, continuity: 4, expressionSupport: 5, emotionClarification: 4, ageAppropriate: 5, boundaryAndHumanSupport: 5 };
+const dialogueReview = { dialogueQuality, dialogueMustRevise: false, dialogueHarmFlags: ["none"] };
 
 async function newD1() {
   const mf = new Miniflare({ compatibilityDate: "2026-05-22", modules: true, script: "export default { fetch() { return new Response('ok') } }", d1Databases: { DB: crypto.randomUUID() } });
@@ -75,11 +78,38 @@ async function state(cookie, bindings) {
   return response.json();
 }
 
+function installQwenStub(t, reply = "我听到这件事让你有些难受。可以先做一小步，也可以找一位可信任的老师说说。") {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    if (url.startsWith("https://dashscope.aliyuncs.com/")) {
+      calls.push(JSON.parse(String(init?.body ?? "{}")));
+      return Response.json({ choices: [{ message: { content: reply } }] });
+    }
+    return originalFetch(input, init);
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  return calls;
+}
+
+async function completeDialogue(cookie, bindings, scenarioId) {
+  let expectedTurn = 0;
+  while (true) {
+    const response = await callApi("/api/evaluation/dialogue", mutation({ scenarioId, expectedTurn }, cookie), bindings);
+    assert.equal(response.status, 200, `${scenarioId} dialogue ${expectedTurn}: ${await response.clone().text()}`);
+    const body = await response.json();
+    if (body.dialogue.completed) return body.dialogue;
+    expectedTurn = body.dialogue.nextTurn;
+  }
+}
+
 async function completeTeacherCases(cookie, bindings) {
   const initial = await state(cookie, bindings);
   assert.equal(initial.scenarios.length, 12);
   for (const scenario of initial.scenarios) {
-    const response = await callApi("/api/evaluation/response", mutation({ scenarioId: scenario.id, ...decision }, cookie), bindings);
+    if (scenario.dialogueRequired) await completeDialogue(cookie, bindings, scenario.id);
+    const response = await callApi("/api/evaluation/response", mutation({ scenarioId: scenario.id, ...decision, ...(scenario.dialogueRequired ? dialogueReview : {}) }, cookie), bindings);
     assert.equal(response.status, 200, `${scenario.id}: ${await response.clone().text()}`);
   }
 }
@@ -90,7 +120,7 @@ test("four consents, code-derived role, one-time code, 12 synthetic scenarios, a
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: teacherCode, EVALUATION_EXPERT_CODES: "EXPERT-CODE-0001", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
 
   const info = await callApi("/api/evaluation/info", {}, bindings);
-  assert.equal(info.status, 200); assert.match(await info.text(), /25–35 分钟/u);
+  assert.equal(info.status, 200); assert.match(await info.text(), /30–45 分钟/u);
   const missing = await callApi("/api/evaluation/session", mutation(consent(teacherCode, { dataUseConfirmed: false })), bindings);
   assert.equal(missing.status, 400);
   const roleSpoof = await callApi("/api/evaluation/session", mutation(consent(teacherCode, { role: "expert" })), bindings);
@@ -108,6 +138,7 @@ test("four consents, code-derived role, one-time code, 12 synthetic scenarios, a
 test("teacher dashboard-only and CCCR persist identical structured fields with no free-text columns", async (t) => {
   const { mf, db } = await newD1(); t.after(() => mf.dispose());
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-0002", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
+  installQwenStub(t);
   const cookie = await start("TEACHER-CODE-0002", bindings);
   const forbiddenText = await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", ...decision, rationale: "自由文本不应进入正式案例。" }, cookie), bindings);
   assert.equal(forbiddenText.status, 400);
@@ -134,18 +165,19 @@ test("expert freezes complete independent judgment before reveal, then stores se
   const cookie = await start("EXPERT-CODE-0002", bindings);
   const before = await state(cookie, bindings);
   assert.equal(before.scenarios[0].frozenOutput, undefined); assert.equal(before.scenarios[0].petReply, undefined); assert.equal(before.scenarios[0].expertReference, null);
-  const prematureLive = await callApi("/api/evaluation/live-demo", mutation({ scenarioId: "C01" }, cookie), bindings);
-  assert.equal(prematureLive.status, 409, "expert live AI demo stays locked until the independent reference is frozen");
+  installQwenStub(t);
+  const prematureLive = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0 }, cookie), bindings);
+  assert.equal(prematureLive.status, 409, "expert dialogue stays locked until the independent reference is frozen");
   const bypass = await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", chosenAction: "monitor", quality, mustRevise: false, criticalHarmFlags: ["none"], decisionTimeMs: 1_000 }, cookie), bindings);
   assert.equal(bypass.status, 409);
   const reveal = await callApi("/api/evaluation/response", mutation({ kind: "expert-reference", scenarioId: "C01", ...reference }, cookie), bindings);
   assert.equal(reveal.status, 200, await reveal.clone().text());
-  const stillPrematureLive = await callApi("/api/evaluation/live-demo", mutation({ scenarioId: "C01" }, cookie), bindings);
-  assert.equal(stillPrematureLive.status, 409, "freezing one case still cannot expose live AI during formal tasks");
+  const dialogue = await completeDialogue(cookie, bindings, "C01");
+  assert.equal(dialogue.completed, true, "dialogue becomes available immediately after this case reference freezes");
   const changed = await callApi("/api/evaluation/response", mutation({ kind: "expert-reference", scenarioId: "C01", ...reference, referenceConfidence: 2 }, cookie), bindings);
   assert.equal(changed.status, 409, "every independent-reference field is immutable after reveal");
   const after = await state(cookie, bindings); assert.ok(after.scenarios[0].frozenOutput); assert.ok(after.scenarios[0].petReply); assert.equal(after.scenarios[1].frozenOutput, undefined); assert.equal(after.scenarios[1].petReply, undefined);
-  const saved = await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", chosenAction: "brief_check_in", quality, mustRevise: true, criticalHarmFlags: ["unsupported_inference", "over_escalation"], decisionTimeMs: 1_500 }, cookie), bindings);
+  const saved = await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", chosenAction: "brief_check_in", quality, mustRevise: true, criticalHarmFlags: ["unsupported_inference", "over_escalation"], ...dialogueReview, decisionTimeMs: 1_500 }, cookie), bindings);
   assert.equal(saved.status, 200, await saved.clone().text());
   const frozen = await db.prepare("SELECT * FROM evaluation_expert_references").first();
   assert.deepEqual(JSON.parse(frozen.reference_evidence_json), reference.referenceEvidence);
@@ -157,7 +189,7 @@ test("expert freezes complete independent judgment before reveal, then stores se
 
   const withdrawn = await callApi("/api/evaluation/withdraw", { method: "DELETE", headers: { origin: ORIGIN, cookie } }, bindings);
   assert.equal(withdrawn.status, 200);
-  for (const table of ["evaluation_participants","evaluation_scenario_responses","evaluation_expert_references","evaluation_surveys"]) {
+  for (const table of ["evaluation_participants","evaluation_scenario_responses","evaluation_expert_references","evaluation_dialogues","evaluation_surveys"]) {
     assert.equal((await db.prepare(`SELECT COUNT(*) count FROM ${table}`).first()).count, 0, table);
   }
   assert.equal((await db.prepare("SELECT COUNT(*) count FROM evaluation_used_codes").first()).count, 1);
@@ -166,47 +198,67 @@ test("expert freezes complete independent judgment before reveal, then stores se
 test("research suppresses n<5 and CSV exports workload, quote, structured teacher and expert quality fields", async (t) => {
   const { mf, db } = await newD1(); t.after(() => mf.dispose());
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-CSV1", EVALUATION_EXPERT_CODES: "EXPERT-CODE-CSV01", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
+  installQwenStub(t);
   const cookie = await start("TEACHER-CODE-CSV1", bindings); await completeTeacherCases(cookie, bindings);
   assert.equal((await callApi("/api/evaluation/response", mutation(survey(52), cookie), bindings)).status, 200);
   const expert = await start("EXPERT-CODE-CSV01", bindings, { quoteConsent: false });
   assert.equal((await callApi("/api/evaluation/response", mutation({ kind: "expert-reference", scenarioId: "C01", ...reference }, expert), bindings)).status, 200);
-  assert.equal((await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", chosenAction: "monitor", quality, mustRevise: false, criticalHarmFlags: ["none"], decisionTimeMs: 2_000 }, expert), bindings)).status, 200);
+  await completeDialogue(expert, bindings, "C01");
+  assert.equal((await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", chosenAction: "monitor", quality, mustRevise: false, criticalHarmFlags: ["none"], ...dialogueReview, decisionTimeMs: 2_000 }, expert), bindings)).status, 200);
   const summary = await callApi("/api/research/summary", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
   const body = await summary.json(); assert.equal(body.minimumGroupSize, 5); assert.deepEqual(body.groups, []);
   assert.deepEqual(new Set(body.suppressedGroups), new Set(["teacher", "expert"]));
   const exported = await callApi("/api/research/export", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
   assert.equal(exported.headers.get("cache-control"), "no-store");
   const csv = await exported.text(); const header = csv.replace(/^\uFEFF/u, "").split(/\r?\n/u, 1)[0];
-  for (const field of ["quote_consent","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","reference_evidence_json","reference_confidence","workload_score"]) assert.match(header, new RegExp(`(?:^|,)${field}(?:,|$)`, "u"));
+  for (const field of ["quote_consent","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","reference_evidence_json","reference_confidence","dialogue_transcript_json","dialogue_rating_json","dialogue_model_id","dialogue_total_latency_ms","workload_score"]) assert.match(header, new RegExp(`(?:^|,)${field}(?:,|$)`, "u"));
   assert.doesNotMatch(header, /context_check|rationale|output_rating/u);
 });
 
-test("live Qwen demo ignores client text, uses only fixed synthetic case, and writes no evaluation response", async (t) => {
+test("formal dialogue starts during teacher case, rejects client text, preserves history, and C08 makes zero Qwen calls", async (t) => {
   const { mf, db } = await newD1(); t.after(() => mf.dispose());
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-LIVE1", QWEN_API_KEY: "test-qwen-key" };
   const cookie = await start("TEACHER-CODE-LIVE1", bindings);
-  const prematureLive = await callApi("/api/evaluation/live-demo", mutation({ scenarioId: "C01" }, cookie), bindings);
-  assert.equal(prematureLive.status, 409, "live AI stays outside the formal evaluation phase");
-  await completeTeacherCases(cookie, bindings);
-  const surveyResponse = await callApi("/api/evaluation/response", mutation(survey(), cookie), bindings);
-  assert.equal(surveyResponse.status, 200, await surveyResponse.clone().text());
-  const beforeLive = await db.prepare("SELECT last_seen_at FROM evaluation_participants").first();
-  const responseCountBeforeLive = Number((await db.prepare("SELECT COUNT(*) count FROM evaluation_scenario_responses").first()).count);
-  const originalFetch = globalThis.fetch; let providerBody = "";
-  globalThis.fetch = async (input, init) => {
-    const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith("https://dashscope.aliyuncs.com/")) {
-      providerBody = String(init?.body ?? "");
-      return Response.json({ choices: [{ message: { content: "这是仅基于固定合成案例的安全演示回应。" } }] });
-    }
-    return originalFetch(input, init);
-  };
-  t.after(() => { globalThis.fetch = originalFetch; });
-  const response = await callApi("/api/evaluation/live-demo", mutation({ scenarioId: "C01", message: "恶意伪造的真实自由文本" }, cookie), bindings);
-  assert.equal(response.status, 200, await response.clone().text()); assert.equal((await response.json()).syntheticOnly, true);
-  assert.match(providerBody, /这次数学没考好/u); assert.doesNotMatch(providerBody, /恶意伪造/u);
-  assert.equal(Number((await db.prepare("SELECT COUNT(*) count FROM evaluation_scenario_responses").first()).count), responseCountBeforeLive);
-  assert.equal((await db.prepare("SELECT last_seen_at FROM evaluation_participants").first()).last_seen_at, beforeLive.last_seen_at, "live demo must not write even session activity");
+  const calls = installQwenStub(t, "我听见你有些挫败。可以先只看第一步，也可以请数学老师陪你一起拆解。");
+  const rejected = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0, message: "恶意真实自由文本" }, cookie), bindings);
+  assert.equal(rejected.status, 400);
+  const first = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0 }, cookie), bindings);
+  assert.equal(first.status, 200, await first.clone().text());
+  const firstBody = await first.json(); assert.equal(firstBody.dialogue.nextTurn, 1); assert.equal(calls.length, 1);
+  assert.match(JSON.stringify(calls[0]), /这次数学没考好/u); assert.doesNotMatch(JSON.stringify(calls[0]), /恶意真实/u);
+  const stale = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0 }, cookie), bindings);
+  assert.equal(stale.status, 409, "CAS rejects replayed/double-clicked turn");
+  const second = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 1 }, cookie), bindings);
+  assert.equal(second.status, 200); assert.equal(calls.length, 2);
+  assert.match(JSON.stringify(calls[1]), /这次数学没考好/u, "second provider request carries stored server history");
+  assert.match(JSON.stringify(calls[1]), /我听见你有些挫败/u);
+  const qwenCallsBeforeCrisis = calls.length;
+  const crisis = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C08", expectedTurn: 0 }, cookie), bindings);
+  assert.equal(crisis.status, 200, await crisis.clone().text());
+  const crisisBody = await crisis.json(); assert.equal(crisisBody.dialogue.completed, true); assert.equal(crisisBody.dialogue.safetyEnded, true);
+  assert.equal(calls.length, qwenCallsBeforeCrisis, "C08 crisis is cut off locally before any Qwen call");
+  const stored = await db.prepare("SELECT * FROM evaluation_dialogues WHERE scenario_id='C08'").first();
+  assert.equal(stored.model_id, "local_crisis_rule"); assert.equal(stored.next_turn, 1); assert.equal(stored.safety_ended, 1);
+  const sealed = await callApi("/api/evaluation/response", mutation({ scenarioId: "C08", ...decision, ...dialogueReview }, cookie), bindings);
+  assert.equal(sealed.status, 200, await sealed.clone().text());
+  const firstSaved = await db.prepare("SELECT chosen_action FROM evaluation_scenario_responses WHERE scenario_id='C08'").first();
+  const duplicate = await callApi("/api/evaluation/response", mutation({ scenarioId: "C08", ...decision, chosenAction: "referral", ...dialogueReview }, cookie), bindings);
+  assert.equal(duplicate.status, 409, "dialogue-backed scenario is sealed exactly once");
+  assert.equal((await db.prepare("SELECT chosen_action FROM evaluation_scenario_responses WHERE scenario_id='C08'").first()).chosen_action, firstSaved.chosen_action,
+    "rejected duplicate cannot overwrite the already sealed scenario response");
+  const legacy = await callApi("/api/evaluation/live-demo", mutation({ scenarioId: "C01" }, cookie), bindings);
+  assert.equal(legacy.status, 410);
+});
+
+test("v5.4 dialogue writes reject a participant from the previous consent protocol", async (t) => {
+  const { mf, db } = await newD1(); t.after(() => mf.dispose());
+  const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-OLD-CONSENT" };
+  const cookie = await start("TEACHER-CODE-OLD-CONSENT", bindings);
+  await db.prepare("UPDATE evaluation_participants SET consent_version='adult-evaluation-2026-08-v1'").run();
+  const response = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0 }, cookie), bindings);
+  assert.equal(response.status, 409);
+  assert.match(await response.text(), /说明已更新/u);
+  assert.equal((await db.prepare("SELECT COUNT(*) count FROM evaluation_dialogues").first()).count, 0);
 });
 
 test("evaluation UI keeps UTF-8 disclosures and has no formal-case free-text judgment controls", async () => {

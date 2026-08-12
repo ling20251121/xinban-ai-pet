@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const nodeBin = process.env.CODEX_NODE_BIN || process.execPath;
@@ -22,6 +25,14 @@ test("PostgreSQL adapter rewrites only unquoted placeholders", async () => {
   assert.deepEqual(postgresSslConfiguration({ DATABASE_ALLOW_INSECURE_LOCAL: " false " }), { rejectUnauthorized: true });
   assert.equal(postgresSslConfiguration({ DATABASE_ALLOW_INSECURE_LOCAL: "true" }), undefined);
   assert.throws(() => postgresSslConfiguration({ DATABASE_ALLOW_INSECURE_LOCAL: "yes" }), /true or false/u);
+  const directory = await mkdtemp(join(tmpdir(), "xinban-pg-ca-"));
+  const caFile = join(directory, "ca.crt");
+  await writeFile(caFile, "test-ca\n", "utf8");
+  assert.deepEqual(postgresSslConfiguration({ DATABASE_CA_FILE: caFile, DATABASE_TLS_SERVER_NAME: "postgres" }), {
+    rejectUnauthorized: true,
+    ca: "test-ca\n",
+    servername: "postgres",
+  });
 });
 
 test("PostgreSQL batch is transactional and rolls back on any failed statement", async () => {

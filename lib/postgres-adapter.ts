@@ -1,4 +1,5 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
+import { readFileSync } from "node:fs";
 import type {
   DatabaseResult,
   DatabaseStatement,
@@ -136,7 +137,7 @@ export class PostgresSystemDatabase implements SystemDatabase {
 
 export function postgresSslConfiguration(
   environment: NodeJS.ProcessEnv,
-): { rejectUnauthorized: true } | undefined {
+): { rejectUnauthorized: true; ca?: string; servername?: string } | undefined {
   const allowInsecureLocal = environment.DATABASE_ALLOW_INSECURE_LOCAL
     ?.trim()
     .toLowerCase();
@@ -146,7 +147,15 @@ export function postgresSslConfiguration(
       "DATABASE_ALLOW_INSECURE_LOCAL must be true or false when set.",
     );
   }
-  return { rejectUnauthorized: true };
+  const caFile = environment.DATABASE_CA_FILE?.trim() ?? "";
+  const servername = environment.DATABASE_TLS_SERVER_NAME?.trim() ?? "";
+  return caFile
+    ? {
+        rejectUnauthorized: true,
+        ca: readFileSync(caFile, "utf8"),
+        ...(servername ? { servername } : {}),
+      }
+    : { rejectUnauthorized: true };
 }
 
 export function createPostgresDatabase(environment: NodeJS.ProcessEnv): {

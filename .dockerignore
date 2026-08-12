@@ -1,0 +1,14 @@
+.git
+.next
+.vinext
+.wrangler
+dist
+node_modules
+outputs
+work
+.env*
+!.env.example
+*.pem
+*.log
+*.png
+docs/versions

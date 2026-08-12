@@ -1,7 +1,7 @@
 {
   "project": "XinBan AI-Pet",
-  "updatedAt": "2026-08-12",
-  "current": "v5.3.2",
+  "updatedAt": "2026-08-13",
+  "current": "v5.4.0",
   "versions": [
     {
       "version": "v1.0.0",
@@ -228,6 +228,63 @@
       "realStudentData": false,
       "approvedForRealMinorPilot": false,
       "approvedAsResearchResults": false,
+      "interventionEffectClaim": false
+    },
+    {
+      "version": "v5.4.0",
+      "type": "adult-formative-real-qwen-multiturn-dialogue-evaluation",
+      "commit": null,
+      "fixedPath": "./v5.4.0/",
+      "participants": [
+        "adult-testers-only",
+        "adult-teachers",
+        "adult-experts"
+      ],
+      "modes": {
+        "syntheticSchoolContinuousChat": "/login",
+        "formalProfessionalDialogueEvaluation": "/evaluate"
+      },
+      "formalDialogueEvaluation": {
+        "syntheticCases": 5,
+        "caseIds": [
+          "C01",
+          "C05",
+          "C08",
+          "C10",
+          "C11"
+        ],
+        "maxStudentTurnsPerCase": 3,
+        "serverOwnedSyntheticTurns": true,
+        "actualQwenTranscriptsPersisted": true,
+        "exactModelAndPromptVersionsPersisted": true,
+        "teacherAccess": "immediate-per-case",
+        "expertAccess": "after-independent-case-reference-freeze",
+        "localSafetyCase": "C08",
+        "dialogueMetrics": [
+          "warmth",
+          "relevance",
+          "continuity",
+          "expression-support",
+          "emotion-clarification",
+          "age-appropriateness",
+          "boundary-and-human-support"
+        ]
+      },
+      "consentVersion": "adult-evaluation-dialogue-2026-08-v2",
+      "studentSandboxSessionLimits": {
+        "minutes": 15,
+        "studentTurns": 12
+      },
+      "fullRegressionTests": "24/24",
+      "archivePageNetworkRequests": false,
+      "archivePageForms": false,
+      "archivePageScripts": false,
+      "browserStorage": false,
+      "liveModelKeyIncluded": false,
+      "realStudentData": false,
+      "approvedForRealMinorPilot": false,
+      "approvedAsResearchResults": false,
+      "counsellingClaim": false,
       "interventionEffectClaim": false
     }
   ]
