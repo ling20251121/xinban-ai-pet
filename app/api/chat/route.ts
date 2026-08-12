@@ -20,6 +20,9 @@ import {
 } from "@/lib/http";
 import { analyzeSafety, CRISIS_REPLY } from "@/lib/safety";
 import { asObject, parseChatPayload, parseOptionalEntryId } from "@/lib/validation";
+import { getRuntimeEnv } from "@/db";
+import { rejectSandboxPersonalInformation } from "@/lib/content-safety";
+import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -40,6 +43,9 @@ export async function POST(request: Request): Promise<Response> {
     ensureStrictSameOrigin(request);
     const { user } = await requireStudentReady(request);
     const payload = parseChatPayload(await readJsonBody<unknown>(request));
+    if (isSyntheticSchoolSandbox(getRuntimeEnv())) {
+      rejectSandboxPersonalInformation(payload.mood, payload.message);
+    }
     const conversation = await getOrCreateConversation(user, payload.conversationId);
     const reservation = await reserveTurn(user, conversation);
     const { studentTurns } = reservation;
@@ -72,7 +78,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     await saveUserMessage(
-      user.id,
+      user,
       conversation.id,
       reservation.leaseToken,
       payload.message,

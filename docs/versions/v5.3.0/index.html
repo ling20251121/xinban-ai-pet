@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v5.3.0：仅限成年测试者使用固定合成情境体验学生、教师、Qwen 对话与语音流程的静态归档说明">
+  <title>心伴 AI-Pet v5.3.0 · 成人合成学校沙盒</title>
+  <style>
+    :root{--ink:#2d2c43;--muted:#716f84;--purple:#6d55bd;--purple-dark:#503a9e;--purple-soft:#f0ebff;--mint:#267868;--mint-soft:#e7f7f1;--amber:#845c20;--amber-soft:#fff5df;--rose:#944e64;--rose-soft:#fff0f4;--line:#dfd9ec;--paper:#fff;--canvas:#f8f6fc;--shadow:0 26px 70px rgba(74,54,127,.12)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 9% 8%,#ece6ff 0,transparent 30%),radial-gradient(circle at 92% 12%,#ddf4eb 0,transparent 28%),var(--canvas);line-height:1.72}a{color:inherit}.skip{position:fixed;top:8px;left:12px;z-index:20;transform:translateY(-150%);padding:9px 13px;border-radius:10px;background:var(--ink);color:#fff}.skip:focus{transform:none}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:76px;padding:12px max(22px,calc((100vw - 1060px)/2));border-bottom:1px solid var(--line);background:rgba(255,255,255,.96)}.brand{text-decoration:none;font-size:1.15rem;font-weight:900}.brand small{margin-left:8px;color:#8b879a;font-size:.7rem;letter-spacing:.08em}.archive{display:inline-flex;min-height:44px;align-items:center;padding:8px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#5f587c;font-size:.82rem;font-weight:800;text-decoration:none}.archive:focus-visible,.button:focus-visible{outline:3px solid #9a88df;outline-offset:3px}
+    main{width:min(1060px,calc(100% - 32px));margin:0 auto;padding:50px 0 64px}.hero{position:relative;overflow:hidden;padding:clamp(25px,5vw,54px);border:1px solid var(--line);border-radius:31px;background:rgba(255,255,255,.97);box-shadow:var(--shadow)}.hero::after{position:absolute;top:-95px;right:-50px;width:260px;height:260px;border-radius:45% 55% 50% 50%;background:linear-gradient(145deg,#8468d8,#54a68f);content:"";opacity:.13;transform:rotate(13deg)}.eyebrow{position:relative;z-index:1;margin:0;color:#7c6d9b;font-size:.74rem;font-weight:900;letter-spacing:.13em}.version{display:inline-flex;margin-left:8px;padding:5px 9px;border-radius:999px;background:var(--purple-soft);color:var(--purple-dark);letter-spacing:0}.hero h1{position:relative;z-index:1;margin:.6rem 0 .9rem;font-size:clamp(2.15rem,6vw,4.2rem);line-height:1.04;letter-spacing:-.05em}.lead{position:relative;z-index:1;max-width:845px;margin:0;color:var(--muted);font-size:1.02rem}.scope{margin:28px 0 0;padding:19px 21px;border:1px solid #e7c9d2;border-radius:17px;background:var(--rose-soft);color:#735663}.scope strong{color:#873d57}.roles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:26px 0}.role{padding:18px;border:1px solid var(--line);border-radius:17px;background:#fff}.role b{display:block;color:var(--purple);font-size:.72rem;letter-spacing:.08em}.role strong{display:block;margin:5px 0;font-size:1rem}.role small{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.panel{padding:22px;border:1px solid var(--line);border-radius:19px;background:#fff}.panel p{margin:0 0 8px;color:#7b6995;font-size:.7rem;font-weight:900;letter-spacing:.1em}.panel h2{margin:0 0 7px;font-size:1.13rem}.panel span{color:var(--muted);font-size:.86rem}.boundaries{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:22px}.boundary{padding:19px;border-radius:17px;background:#353246;color:#fff}.boundary strong{display:block;margin-bottom:4px}.boundary span{color:#d9d6e1;font-size:.82rem}.boundary.safe{background:var(--mint)}.boundary.warn{background:#76552e}.notice{margin-top:22px;padding:18px 19px;border:1px solid #e7d2ab;border-radius:16px;background:var(--amber-soft);color:#73582f;font-size:.86rem}.notice strong{color:#744d16}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:27px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:8px 16px;border-radius:12px;font-weight:900;text-decoration:none}.primary{background:var(--purple);color:#fff}.secondary{border:1px solid var(--line);background:#fff;color:#5d5870}.foot{margin:25px 0 0;padding-top:18px;border-top:1px solid var(--line);color:#898696;font-size:.78rem}
+    @media(max-width:850px){.roles{grid-template-columns:repeat(2,minmax(0,1fr))}.boundaries{grid-template-columns:1fr 1fr}.boundary.warn{grid-column:1/-1}}@media(max-width:620px){.grid,.roles,.boundaries{grid-template-columns:1fr}.boundary.warn{grid-column:auto}}@media(max-width:480px){.topbar{padding-inline:11px}.brand small{display:none}main{width:min(100% - 20px,480px);padding-top:26px}.hero{padding:22px;border-radius:21px}.actions{display:grid}.button{width:100%}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media(forced-colors:active){.hero,.role,.panel{border:2px solid CanvasText}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="topbar"><a class="brand" href="../../">心伴 <small>AI-PET · v5.3.0</small></a><a class="archive" href="../../">返回全部版本</a></header>
+  <main id="main">
+    <article class="hero">
+      <p class="eyebrow">ADULT-OPERATED SYNTHETIC SCHOOL SANDBOX <span class="version">v5.3.0</span></p>
+      <h1>把完整流程打开，<br>把真实学生留在门外。</h1>
+      <p class="lead">v5.3.0 仅供 18 岁以上测试者扮演 3 个虚构学生或 1 个虚构教师。它让团队用全合成数据体验心情记录、Qwen 连续对话、语音输入与朗读，以及教师确认、跟进和解决的模拟闭环。</p>
+
+      <div class="scope" role="note"><strong>本固定入口只是静态归档：</strong>它没有登录、表单或脚本，不联网、不调用 Qwen、不读写数据库、不使用浏览器存储，也不包含账号、管理口令、API Key、音频、对话或研究结果。</div>
+
+      <section class="roles" aria-label="四个成人扮演角色">
+        <article class="role"><b>STUDENT A</b><strong>测验后的紧张</strong><small>固定合成起始情境</small></article>
+        <article class="role"><b>STUDENT B</b><strong>小组中的低落</strong><small>固定合成起始情境</small></article>
+        <article class="role"><b>STUDENT C</b><strong>完成任务的开心</strong><small>固定合成起始情境</small></article>
+        <article class="role"><b>TEACHER</b><strong>模拟教师处置</strong><small>查看合成线索并练习闭环</small></article>
+      </section>
+
+      <section class="grid" aria-label="沙盒体验能力">
+        <article class="panel"><p>MOOD</p><h2>合成每日心情</h2><span>成人以虚构学生身份选择心情、填写完全虚构的说明，并决定是否在模拟教师队列中请求支持。</span></article>
+        <article class="panel"><p>QWEN CHAT</p><h2>15 分钟或 12 轮连续对话</h2><span>服务端 Qwen 可在限时限轮内保持合成角色的对话上下文；它不是心理诊断、治疗或紧急服务。</span></article>
+        <article class="panel"><p>ASR / TTS</p><h2>语音输入与模型朗读</h2><span>成人测试者可体验 Qwen ASR 和 TTS。音频不作为研究结果；归档页本身不录音，也不播放或保存任何语音。</span></article>
+        <article class="panel"><p>TEACHER WORKBENCH</p><h2>真的练习模拟处置</h2><span>虚构教师只处理合成班级的最少必要线索，可练习确认、跟进和解决；这些动作不对应真实学生支持。</span></article>
+      </section>
+
+      <section class="boundaries" aria-label="强制数据边界">
+        <article class="boundary safe"><strong>只允许 synthetic=1</strong><span>账号、班级、心情、对话和处置均明确标记为合成；凭据随机生成且不公开写入归档。</span></article>
+        <article class="boundary"><strong>PII 在入口处拒绝</strong><span>疑似真实姓名、学校、班级、学号、电话、邮箱、地址或账号信息不进入存储，也不发送给模型。</span></article>
+        <article class="boundary warn"><strong>不进入 /evaluate 研究结果</strong><span>沙盒体验记录与 v5.2.0 成人教师/专家评价流程隔离，不自动成为论文数据、学生试点数据或干预效果证据。</span></article>
+      </section>
+
+      <div class="notice"><strong>研究边界：</strong>v5.3.0 是成人操作的产品沙盒，不是真实学生试点。即使流程可以运行，也不得据此声称改善了中国中小学生的情绪、求助、学习表现或教师处置效果；真实未成年人使用仍需学校单位备案、研究/伦理审批、知情同意和独立的数据治理方案。</div>
+
+      <div class="actions"><a class="button primary" href="../../">返回版本档案</a><a class="button secondary" href="../v5.2.0/">查看上一固定版本</a></div>
+      <p class="foot">心伴 AI-Pet v5.3.0 · 建立日期 2026-08-12 · 固定静态说明 · 无网络、无表单、无脚本、无存储、无凭据</p>
+    </article>
+  </main>
+</body>
+</html>

@@ -1,6 +1,8 @@
 import type { SessionUser } from "@/lib/auth";
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
+import { getRuntimeEnv } from "@/db";
+import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
 
 type EventStatus = "new" | "acknowledged" | "resolved";
 
@@ -53,14 +55,17 @@ export async function listSafetyEvents(teacherId: string, classId: string | null
   const database = await getSystemDatabase();
   if (classId) {
     const owned = await database.prepare(
-      "SELECT id FROM school_classes WHERE id=? AND teacher_user_id=?",
-    ).bind(classId, teacherId).first();
+      "SELECT id FROM school_classes WHERE id=? AND teacher_user_id=? AND (?=0 OR synthetic=1)",
+    ).bind(classId, teacherId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).first();
     if (!owned) throw new ApiError(404, "没有找到这个班级。");
   }
   const result = await database.prepare(`${EVENT_SELECT}
     WHERE c.teacher_user_id=? AND (? IS NULL OR e.class_id=?)
+      AND (?=0 OR (e.synthetic=1 AND u.synthetic=1 AND c.synthetic=1))
     ORDER BY CASE e.status WHEN 'new' THEN 0 WHEN 'acknowledged' THEN 1 ELSE 2 END,
-      e.created_at DESC LIMIT 100`).bind(teacherId, classId, classId).all<EventRow>();
+      e.created_at DESC LIMIT 100`).bind(
+        teacherId, classId, classId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0,
+      ).all<EventRow>();
   return result.results.map(mapEvent);
 }
 
@@ -79,14 +84,21 @@ export async function updateSafetyEvent(
     status=?,assigned_teacher_user_id=?,
     acknowledged_at=COALESCE(acknowledged_at,?),
     resolved_at=CASE WHEN ?='resolved' THEN ? ELSE resolved_at END
-    WHERE id=? AND class_id IN (
-      SELECT id FROM school_classes WHERE teacher_user_id=?
-    )`).bind(status, teacher.id, now, status, now, id, teacher.id).run();
+    WHERE id=?
+      AND ((?='acknowledged' AND status='new') OR (?='resolved' AND status='acknowledged'))
+      AND (?=0 OR synthetic=1) AND class_id IN (
+      SELECT id FROM school_classes WHERE teacher_user_id=? AND (?=0 OR synthetic=1)
+    )`).bind(
+      status, teacher.id, now, status, now, id,
+      status, status,
+      isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0,
+      teacher.id, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0,
+    ).run();
   if (Number(result.meta.changes ?? 0) !== 1) {
     throw new ApiError(404, "没有找到这个安全事件。");
   }
-  const row = await database.prepare(`${EVENT_SELECT} WHERE e.id=?`)
-    .bind(id).first<EventRow>();
+  const row = await database.prepare(`${EVENT_SELECT} WHERE e.id=? AND (?=0 OR e.synthetic=1)`)
+    .bind(id, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).first<EventRow>();
   if (!row) throw new ApiError(500, "安全事件更新失败。");
   return mapEvent(row);
 }

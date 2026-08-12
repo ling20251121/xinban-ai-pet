@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import SandboxNotice from "../SandboxNotice";
 import {
   type CSSProperties,
   type FormEvent,
@@ -354,7 +355,7 @@ export default function TeacherDashboard() {
       setStudentAgeBand("under14");
       setGuardianVerified(false);
       setStudentFormOpen(false);
-      setNotice("学生账号已创建。初始密码只显示在你刚才输入的位置，请通过学校安全渠道发放。 ");
+      setNotice("虚构学生账号已创建。初始密码只用于本轮成人演示，请勿发给未成年人。 ");
       await Promise.all([loadClasses(), loadTeacherData(selectedClassId)]);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "暂时无法创建学生账号");
@@ -395,7 +396,7 @@ export default function TeacherDashboard() {
       const data = (await response.json()) as { event?: SafetyEvent; error?: string };
       if (!response.ok) throw new Error(data.error || "暂时无法更新核对状态");
       if (data.event) setSafetyEvents((current) => current.map((event) => event.id === item.id ? data.event! : event));
-      setNotice(status === "acknowledged" ? "已记录教师确认；仍需按学校流程与学生本人核对。 " : "已记录完成核对。 ");
+      setNotice(status === "acknowledged" ? "已记录模拟教师确认；请继续扮演合成处置流程。 " : "已记录完成模拟核对。 ");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "暂时无法更新核对状态");
     } finally {
@@ -408,6 +409,7 @@ export default function TeacherDashboard() {
   const consentedStudents = students.filter((student) => student.guardianConsentVerified && student.studentConsented).length;
   const unreviewedEvents = safetyEvents.filter((item) => item.status === "new").length;
   const moodTotal = summary?.moodCounts.reduce((total, item) => total + item.count, 0) || 0;
+  const sandboxManagedAccounts = true;
 
   const trendMax = useMemo(() => Math.max(5, ...(summary?.daily.map((item) => item.count) || [0])), [summary]);
 
@@ -415,15 +417,16 @@ export default function TeacherDashboard() {
     return <main className="teacher-loading" aria-busy="true"><Image src="/dog.svg" alt="" width={82} height={82} priority /><p>正在打开教师工作台……</p></main>;
   }
   if (authState === "error" || !user) {
-    return <main className="teacher-loading"><h1>暂时无法进入工作台</h1><p>请检查学校服务后重试。</p><button type="button" onClick={() => window.location.reload()}>重新尝试</button></main>;
+    return <main className="teacher-loading"><h1>暂时无法进入沙盒工作台</h1><p>请检查演示服务后重试。</p><button type="button" onClick={() => window.location.reload()}>重新尝试</button></main>;
   }
 
   return (
     <div className="teacher-shell" lang="zh-CN">
       <a className="teacher-skip-link" href="#teacher-main">跳到主要内容</a>
+      <SandboxNotice surface="teacher" />
       <header className="teacher-topbar">
-        <a className="teacher-brand" href="/teacher"><Image src="/dog.svg" alt="" width={42} height={42} priority /><span><strong>心伴</strong><small>教师支持台</small></span></a>
-        <div className="teacher-account"><span><small>已登录教师</small>{user.displayName || user.username}</span><button type="button" onClick={logout}>退出</button></div>
+        <a className="teacher-brand" href="/teacher"><Image src="/dog.svg" alt="" width={42} height={42} priority /><span><strong>心伴</strong><small>合成教师沙盒</small></span></a>
+        <div className="teacher-account"><span><small>虚构教师角色</small>{user.displayName || user.username}</span><button type="button" onClick={logout}>退出</button></div>
       </header>
 
       <div className="teacher-workbench">
@@ -435,13 +438,13 @@ export default function TeacherDashboard() {
           </nav>
           <section className="sidebar-boundary">
             <strong>信息边界</strong>
-            <p>工作台只显示班级汇总、学校账号、同意状态和最少必要安全事件，不显示普通聊天原文。</p>
+            <p>此处只显示合成班级汇总、虚构账号和模拟事件，不显示普通聊天原文，不可用于现实处置。</p>
           </section>
         </aside>
 
         <main id="teacher-main" className="teacher-main">
           <header className="teacher-page-heading">
-            <div><p className="teacher-eyebrow">学生支持工作台</p><h1>{activeSection === "overview" ? "班级概览" : activeSection === "students" ? "学生账号与同意" : "支持与安全核对"}</h1><p>这些线索用于及时关心，不用于诊断、排名、处罚或评价学生。</p></div>
+            <div><p className="teacher-eyebrow">成人扮演教师</p><h1>{activeSection === "overview" ? "合成班级概览" : activeSection === "students" ? "虚构学生账号" : "模拟支持与处置"}</h1><p>所有账号、心情、队列和事件都应来自合成演示。操作只用于评估产品流程，不会触发现实联系。</p></div>
             <div className="teacher-heading-actions">
               <label htmlFor="class-filter">班级范围</label>
               <select id="class-filter" value={selectedClassId} onChange={(event) => { setSelectedClassId(event.target.value); void loadTeacherData(event.target.value); }}>
@@ -460,12 +463,12 @@ export default function TeacherDashboard() {
               <section className="teacher-metrics" aria-label="班级关键数据">
                 <article><span className="metric-icon is-purple" aria-hidden="true">今</span><div><strong>{summary?.todayCount ?? 0}</strong><p>今日完成</p></div><small>仅计已保存心情</small></article>
                 <article><span className="metric-icon is-green" aria-hidden="true">人</span><div><strong>{summary?.participants ?? 0}</strong><p>7 天参与</p></div><small>{summary?.totalEntries ?? 0} 条记录</small></article>
-                <article><span className="metric-icon is-gold" aria-hidden="true">援</span><div><strong>{summary?.supportRequests ?? 0}</strong><p>真人支持请求</p></div><small>需按校内流程联系</small></article>
+                <article><span className="metric-icon is-gold" aria-hidden="true">援</span><div><strong>{summary?.supportRequests ?? 0}</strong><p>模拟支持请求</p></div><small>仅测试处置流程</small></article>
                 <article className={unreviewedEvents ? "is-urgent" : ""}><span className="metric-icon is-red" aria-hidden="true">核</span><div><strong>{unreviewedEvents}</strong><p>待教师查看</p></div><small>不等于已通知</small></article>
               </section>
 
               {!summary || (summary.totalEntries === 0 && classes.length === 0) ? (
-                <section className="teacher-empty-state"><Image src="/dog.svg" alt="" width={100} height={100} /><h2>还没有班级数据</h2><p>先创建班级和学生账号。学生完成同意并保存心情后，真实汇总会显示在这里。</p><button type="button" onClick={() => { setActiveSection("students"); setClassFormOpen(true); }}>创建第一个班级</button></section>
+                <section className="teacher-empty-state"><Image src="/dog.svg" alt="" width={100} height={100} /><h2>还没有合成班级数据</h2><p>虚构班级与角色由部署方在服务端初始化。初始化后，成人测试者保存合成心情，演示汇总会显示在这里。</p><button type="button" onClick={() => setActiveSection("students")}>查看虚构角色状态</button></section>
               ) : summary.totalEntries === 0 ? (
                 <section className="teacher-empty-state"><h2>这个范围还没有心情记录</h2><p>账号和同意状态可在“学生账号”中查看。工作台不会用示例数据填充空白。</p></section>
               ) : (
@@ -491,39 +494,46 @@ export default function TeacherDashboard() {
               )}
 
               <section className="teacher-panel support-preview">
-                <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">最少必要线索</p><h2>真人支持请求</h2></div><button type="button" onClick={() => setActiveSection("safety")}>查看核对台</button></div>
-                {summary?.supportQueue.length ? <ul>{summary.supportQueue.slice(0, 4).map((item) => <li key={item.id}><span className={item.safetyLevel === "urgent" ? "urgent-dot" : "support-dot"}></span><div><strong>{item.participantCode}</strong><p>{item.safetyLevel === "urgent" ? "触发本地安全规则，需立即人工核对" : "学生主动请求真人联系"}</p></div><time>{formatDate(item.createdAt)}</time></li>)}</ul> : <p className="teacher-inline-empty">当前没有真人支持请求。</p>}
+                <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">合成支持线索</p><h2>模拟支持请求</h2></div><button type="button" onClick={() => setActiveSection("safety")}>查看处置台</button></div>
+                {summary?.supportQueue.length ? <ul>{summary.supportQueue.slice(0, 4).map((item) => <li key={item.id}><span className={item.safetyLevel === "urgent" ? "urgent-dot" : "support-dot"}></span><div><strong>{item.participantCode}</strong><p>{item.safetyLevel === "urgent" ? "合成内容触发本地规则，请模拟人工核对" : "虚构学生发出模拟支持请求"}</p></div><time>{formatDate(item.createdAt)}</time></li>)}</ul> : <p className="teacher-inline-empty">当前没有模拟支持请求。</p>}
               </section>
             </>
           )}
 
           {activeSection === "students" && (
             <section className="accounts-section">
-              <div className="accounts-actions">
-                <div><p className="teacher-eyebrow">学校统一发放</p><h2>班级与学生账号</h2><p>不收集手机号。初始密码登录后必须修改；监护人核验和学生本人同意缺一不可。</p></div>
-                <div><button type="button" onClick={() => setClassFormOpen((open) => !open)}>创建班级</button><button className="primary" type="button" onClick={() => setStudentFormOpen((open) => !open)} disabled={!classes.length}>创建学生账号</button></div>
-              </div>
+              {sandboxManagedAccounts ? (
+                <div className="accounts-actions sandbox-managed-accounts">
+                  <div><p className="teacher-eyebrow">服务端统一初始化</p><h2>虚构班级与账号</h2><p>为防止录入真实信息，公开沙盒不提供创建班级或学生账号的表单。虚构角色与一次性凭据由部署管理员在服务端生成并单独发放。</p></div>
+                  <span className="sandbox-managed-badge">禁止在浏览器录入现实资料</span>
+                </div>
+              ) : (
+                <>
+                  <div className="accounts-actions">
+                    <div><p className="teacher-eyebrow">仅限合成角色</p><h2>虚构班级与账号</h2><p>禁止填写真实姓名、学号、班级、学校、手机号或其他可识别信息。</p></div>
+                    <div><button type="button" onClick={() => setClassFormOpen((open) => !open)}>创建班级</button><button className="primary" type="button" onClick={() => setStudentFormOpen((open) => !open)} disabled={!classes.length}>创建学生账号</button></div>
+                  </div>
+                  {classFormOpen && <form className="teacher-form-grid" onSubmit={createClass}><h3>创建合成班级</h3><label>虚构班级名称<input value={className} onChange={(event) => setClassName(event.target.value)} required maxLength={80} /></label><label>虚构支持岗位<input value={contactName} onChange={(event) => setContactName(event.target.value)} required maxLength={80} /></label><label>合成联系码<input value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} required maxLength={32} /></label><div className="form-actions"><button type="submit" className="primary" disabled={classBusy}>{classBusy ? "正在创建…" : "创建合成班级"}</button><button type="button" onClick={() => setClassFormOpen(false)}>取消</button></div></form>}
+                  {studentFormOpen && <form className="teacher-form-grid student-create-form" onSubmit={createStudent}><h3>创建虚构学生角色</h3><label>所属合成班级<select value={selectedClassId} onChange={(event) => setSelectedClassId(event.target.value)} required><option value="">请选择</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>虚构用户名<input value={studentUsername} onChange={(event) => setStudentUsername(event.target.value)} required minLength={3} maxLength={64} /></label><label>演示初始密码<input type="password" value={studentPassword} onChange={(event) => setStudentPassword(event.target.value)} required minLength={12} /></label><label>情境年龄段<select value={studentAgeBand} onChange={(event) => setStudentAgeBand(event.target.value as "under14" | "14plus")}><option value="under14">合成：14 岁以下</option><option value="14plus">合成：14 岁及以上</option></select></label><label className="teacher-check"><input aria-label="模拟前置同意状态" type="checkbox" checked={guardianVerified} onChange={(event) => setGuardianVerified(event.target.checked)} /><span><strong>模拟前置同意已完成</strong></span></label><div className="form-actions"><button type="submit" className="primary" disabled={studentBusy}>{studentBusy ? "正在创建…" : "创建虚构角色"}</button><button type="button" onClick={() => setStudentFormOpen(false)}>取消</button></div></form>}
+                </>
+              )}
 
-              {classFormOpen && <form className="teacher-form-grid" onSubmit={createClass}><h3>创建班级并指定真人安全联系人</h3><label>班级名称<input value={className} onChange={(event) => setClassName(event.target.value)} required maxLength={80} placeholder="例如：七年级 2 班" /></label><label>安全联系人<input value={contactName} onChange={(event) => setContactName(event.target.value)} required maxLength={80} placeholder="姓名或岗位" /></label><label>校内联系电话<input value={contactPhone} onChange={(event) => setContactPhone(event.target.value)} required maxLength={32} inputMode="tel" placeholder="学校可用的值班电话" /></label><div className="form-actions"><button type="submit" className="primary" disabled={classBusy}>{classBusy ? "正在创建…" : "创建班级"}</button><button type="button" onClick={() => setClassFormOpen(false)}>取消</button></div></form>}
-
-              {studentFormOpen && <form className="teacher-form-grid student-create-form" onSubmit={createStudent}><h3>创建学生学校账号</h3><label>所属班级<select value={selectedClassId} onChange={(event) => setSelectedClassId(event.target.value)} required><option value="">请选择</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>匿名用户名<input value={studentUsername} onChange={(event) => setStudentUsername(event.target.value)} required minLength={3} maxLength={64} autoComplete="off" placeholder="不使用姓名、学号或可识别昵称" /></label><label>初始密码<input type="password" value={studentPassword} onChange={(event) => setStudentPassword(event.target.value)} required minLength={12} autoComplete="new-password" placeholder="至少 12 个字符" /></label><label>年龄段<select value={studentAgeBand} onChange={(event) => setStudentAgeBand(event.target.value as "under14" | "14plus")}><option value="under14">14 岁以下</option><option value="14plus">14 岁及以上</option></select></label><label className="teacher-check"><input aria-label="学校已核验监护人同意" type="checkbox" checked={guardianVerified} onChange={(event) => setGuardianVerified(event.target.checked)} /><span><strong>学校已核验监护人同意</strong><small>未勾选时账号可创建，但学生不能进入；14 岁以下尤其必须完成核验。</small></span></label><div className="form-actions"><button type="submit" className="primary" disabled={studentBusy}>{studentBusy ? "正在创建…" : "创建账号"}</button><button type="button" onClick={() => setStudentFormOpen(false)}>取消</button></div></form>}
-
-              <div className="class-strip" aria-label="班级概况">{classes.length ? classes.map((item) => <button key={item.id} type="button" className={selectedClassId === item.id ? "is-active" : ""} onClick={() => { setSelectedClassId(item.id); void loadTeacherData(item.id); }}><strong>{item.name}</strong><span>{item.studentCount} 个账号</span><small>安全联系人：{item.safetyContactName || "未设置"}</small></button>) : <p>还没有班级。</p>}</div>
+              <div className="class-strip" aria-label="合成班级概况">{classes.length ? classes.map((item) => <button key={item.id} type="button" className={selectedClassId === item.id ? "is-active" : ""} onClick={() => { setSelectedClassId(item.id); void loadTeacherData(item.id); }}><strong>{item.name}</strong><span>{item.studentCount} 个虚构账号</span><small>模拟支持岗位：{item.safetyContactName || "未设置"}</small></button>) : <p>还没有合成班级。</p>}</div>
 
               <div className="account-table-wrap">
                 <div className="account-table-summary"><strong>{selectedClass ? selectedClass.name : "全部班级"}</strong><span>{activeStudents} 个启用账号 · {consentedStudents} 个已完成双重同意</span></div>
-                {students.length ? <div className="account-table" role="table" aria-label="学生账号和同意状态"><div className="account-row account-head" role="row"><span role="columnheader">匿名学校账号</span><span role="columnheader">年龄段</span><span role="columnheader">监护人核验</span><span role="columnheader">学生同意</span><span role="columnheader">账号状态</span><span role="columnheader">操作</span></div>{students.map((student) => <div key={student.id} className="account-row" role="row"><span role="cell"><strong>{student.username}</strong><small>不显示姓名或可识别称呼</small></span><span role="cell">{student.ageBand === "under14" ? "14 岁以下" : "14 岁及以上"}</span><span role="cell"><i className={student.guardianConsentVerified ? "status-ok" : "status-wait"}>{student.guardianConsentVerified ? "已核验" : "未核验"}</i></span><span role="cell"><i className={student.studentConsented ? "status-ok" : "status-wait"}>{student.studentConsented ? "已同意" : "待本人同意"}</i></span><span role="cell"><i className={student.active ? "status-ok" : "status-off"}>{student.active ? "启用" : "已停用"}</i></span><span role="cell" className="account-buttons"><button type="button" disabled={updatingId === student.id} onClick={() => void updateStudent(student, { guardianConsentVerified: !student.guardianConsentVerified })}>{student.guardianConsentVerified ? "撤销监护人核验" : "确认监护人已核验"}</button><button type="button" disabled={updatingId === student.id} onClick={() => void updateStudent(student, { active: !student.active })}>{student.active ? "停用" : "启用"}</button></span></div>)}</div> : <div className="teacher-empty-state compact"><h3>这个范围还没有学生账号</h3><p>创建后将显示真实的同意和启用状态；这里不会填充示例学生。</p></div>}
+                {students.length ? <div className="account-table" role="table" aria-label="虚构角色和模拟状态"><div className="account-row account-head" role="row"><span role="columnheader">虚构账号</span><span role="columnheader">情境年龄段</span><span role="columnheader">模拟前置状态</span><span role="columnheader">角色确认</span><span role="columnheader">账号状态</span><span role="columnheader">操作</span></div>{students.map((student) => <div key={student.id} className="account-row" role="row"><span role="cell"><strong>{student.username}</strong><small>仅限合成代号</small></span><span role="cell">{student.ageBand === "under14" ? "合成：14 岁以下" : "合成：14 岁及以上"}</span><span role="cell"><i className={student.guardianConsentVerified ? "status-ok" : "status-wait"}>{student.guardianConsentVerified ? "已开启" : "未开启"}</i></span><span role="cell"><i className={student.studentConsented ? "status-ok" : "status-wait"}>{student.studentConsented ? "已确认" : "待测试者确认"}</i></span><span role="cell"><i className={student.active ? "status-ok" : "status-off"}>{student.active ? "启用" : "已停用"}</i></span><span role="cell" className="account-buttons"><button type="button" disabled={updatingId === student.id} onClick={() => void updateStudent(student, { guardianConsentVerified: !student.guardianConsentVerified })}>{student.guardianConsentVerified ? "关闭模拟前置状态" : "开启模拟前置状态"}</button><button type="button" disabled={updatingId === student.id} onClick={() => void updateStudent(student, { active: !student.active })}>{student.active ? "停用" : "启用"}</button></span></div>)}</div> : <div className="teacher-empty-state compact"><h3>这个范围还没有虚构角色</h3><p>创建后将显示实时的演示状态；所有账号必须为合成代号。</p></div>}
               </div>
             </section>
           )}
 
           {activeSection === "safety" && (
             <section className="safety-section">
-              <div className="safety-boundary"><strong>先核对真人状态，不推断、不审问</strong><p>事件仅说明本地规则在心情记录、AI 对话或语音转写中被触发。工作台不显示原文，也不能证明已联系到学生。</p></div>
+              <div className="safety-boundary"><strong>这是模拟处置，不会联系真人</strong><p>事件仅说明本地规则在合成心情、AI 对话或语音转写中被触发。请扮演 CCCR 核对流程，不要输入现实联系信息。</p></div>
               <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">最少必要安全事件</p><h2>人工核对队列</h2></div><span>{unreviewedEvents} 项待教师查看</span></div>
-              {safetyEvents.length ? <div className="safety-event-list">{safetyEvents.map((item) => <article key={item.id} className={`safety-event is-${item.status}`}><span className="event-mark" aria-hidden="true">{item.status === "new" ? "!" : "✓"}</span><div className="event-main"><div><strong>{item.studentUsername}</strong><span>{item.className}</span><i>{statusLabels[item.status]}</i></div><dl><div><dt>事件码</dt><dd>本地危机词规则</dd></div><div><dt>来源</dt><dd>{sourceLabels[item.sourceType]}</dd></div><div><dt>触发时间</dt><dd>{formatDate(item.createdAt)}</dd></div></dl><p>不含学生原文。请通过学校既有真人渠道核对安全状态。</p></div><div className="event-actions">{item.status === "new" && <button type="button" onClick={() => void updateSafetyEvent(item, "acknowledged")} disabled={updatingId === item.id}>我已看到，开始核对</button>}{item.status === "acknowledged" && <button type="button" onClick={() => void updateSafetyEvent(item, "resolved")} disabled={updatingId === item.id}>记录为已完成核对</button>}{item.status === "resolved" && <span>完成于 {item.resolvedAt ? formatDate(item.resolvedAt) : "已记录"}</span>}</div></article>)}</div> : <div className="teacher-empty-state compact"><h3>当前没有安全事件</h3><p>这不是安全保证；日常支持仍应依靠老师对学生的真实了解。</p></div>}
+              {safetyEvents.length ? <div className="safety-event-list">{safetyEvents.map((item) => <article key={item.id} className={`safety-event is-${item.status}`}><span className="event-mark" aria-hidden="true">{item.status === "new" ? "!" : "✓"}</span><div className="event-main"><div><strong>{item.studentUsername}</strong><span>{item.className}</span><i>{statusLabels[item.status]}</i></div><dl><div><dt>事件码</dt><dd>本地危机词规则</dd></div><div><dt>来源</dt><dd>{sourceLabels[item.sourceType]}</dd></div><div><dt>触发时间</dt><dd>{formatDate(item.createdAt)}</dd></div></dl><p>不含合成对话原文。请仅模拟核对与处置，不会联系真人。</p></div><div className="event-actions">{item.status === "new" && <button type="button" onClick={() => void updateSafetyEvent(item, "acknowledged")} disabled={updatingId === item.id}>我已看到，开始模拟核对</button>}{item.status === "acknowledged" && <button type="button" onClick={() => void updateSafetyEvent(item, "resolved")} disabled={updatingId === item.id}>记录为已完成模拟处置</button>}{item.status === "resolved" && <span>完成于 {item.resolvedAt ? formatDate(item.resolvedAt) : "已记录"}</span>}</div></article>)}</div> : <div className="teacher-empty-state compact"><h3>当前没有合成事件</h3><p>可从虚构学生视角触发模拟支持请求，然后回到此处测试处置流程。</p></div>}
 
-              <section className="cccr-card" aria-labelledby="cccr-title"><div><p className="teacher-eyebrow">Cue → Check → Choose → Reflect</p><h2 id="cccr-title">教师人工核对流程</h2></div><ol><li><b>1</b><strong>Cue · 看线索</strong><p>只读事件码、来源、时间与账号。</p></li><li><b>2</b><strong>Check · 找本人</strong><p>尽快确认学生是否安全，不要求解释全部。</p></li><li><b>3</b><strong>Choose · 选支持</strong><p>按学校预案联系监护人、校医或紧急服务。</p></li><li><b>4</b><strong>Reflect · 留痕复盘</strong><p>只记录必要处置状态，不复制聊天原文。</p></li></ol></section>
+              <section className="cccr-card" aria-labelledby="cccr-title"><div><p className="teacher-eyebrow">Cue → Check → Choose → Reflect</p><h2 id="cccr-title">模拟教师处置流程</h2></div><ol><li><b>1</b><strong>Cue · 看合成线索</strong><p>只读事件码、来源、时间与虚构账号。</p></li><li><b>2</b><strong>Check · 选核对步骤</strong><p>扮演如何确认合成角色状态，不会联系真人。</p></li><li><b>3</b><strong>Choose · 选模拟支持</strong><p>从预设处置中选择合理下一步，不输入真实联系信息。</p></li><li><b>4</b><strong>Reflect · 留痕复盘</strong><p>只记录模拟处置状态，不复制对话原文。</p></li></ol></section>
             </section>
           )}
         </main>

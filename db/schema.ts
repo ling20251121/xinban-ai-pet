@@ -8,6 +8,18 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+export const sandboxState = sqliteTable(
+  "sandbox_state",
+  {
+    id: text("id").primaryKey(),
+    claimToken: text("claim_token").notNull(),
+    initializedAt: text("initialized_at").notNull(),
+  },
+  (table) => [
+    check("sandbox_state_id_check", sql`${table.id} = 'synthetic-school'`),
+  ],
+);
+
 export const schoolClasses = sqliteTable(
   "school_classes",
   {
@@ -16,12 +28,14 @@ export const schoolClasses = sqliteTable(
     name: text("name").notNull(),
     safetyContactName: text("safety_contact_name").notNull(),
     safetyContactPhone: text("safety_contact_phone").notNull(),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
     active: integer("active", { mode: "boolean" }).notNull().default(true),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
     check("school_classes_active_check", sql`${table.active} IN (0, 1)`),
+    check("school_classes_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     index("idx_school_classes_teacher").on(table.teacherUserId, table.active),
   ],
 );
@@ -50,6 +64,7 @@ export const appUsers = sqliteTable(
     createdByUserId: text("created_by_user_id"),
     failedLoginCount: integer("failed_login_count").notNull().default(0),
     lockedUntil: text("locked_until"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -62,6 +77,7 @@ export const appUsers = sqliteTable(
     ),
     check("app_users_role_check", sql`${table.role} IN ('teacher', 'student')`),
     check("app_users_active_check", sql`${table.active} IN (0, 1)`),
+    check("app_users_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     check(
       "app_users_password_change_check",
       sql`${table.mustChangePassword} IN (0, 1)`,
@@ -130,6 +146,7 @@ export const moodEntries = sqliteTable(
       .notNull()
       .default("normal"),
     supportEvidence: text("support_evidence"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -137,6 +154,7 @@ export const moodEntries = sqliteTable(
   (table) => [
     check("mood_entries_score_check", sql`${table.moodScore} BETWEEN 0 AND 5`),
     check("mood_entries_support_check", sql`${table.wantsSupport} IN (0, 1)`),
+    check("mood_entries_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     check(
       "mood_entries_safety_check",
       sql`${table.safetyLevel} IN ('normal', 'urgent')`,
@@ -170,6 +188,7 @@ export const chatConversations = sqliteTable(
       enum: ["expired", "turn_limit", "urgent", "student_deleted"],
     }),
     endedAt: text("ended_at"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -182,6 +201,7 @@ export const chatConversations = sqliteTable(
       "chat_conversations_in_flight_check",
       sql`${table.inFlight} IN (0, 1)`,
     ),
+    check("chat_conversations_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     check(
       "chat_conversations_end_reason_check",
       sql`${table.endedReason} IS NULL OR ${table.endedReason} IN ('expired', 'turn_limit', 'urgent', 'student_deleted')`,
@@ -207,6 +227,7 @@ export const chatMessages = sqliteTable(
     safetyLevel: text("safety_level", { enum: ["normal", "urgent"] })
       .notNull()
       .default("normal"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -218,6 +239,7 @@ export const chatMessages = sqliteTable(
       "chat_messages_safety_check",
       sql`${table.safetyLevel} IN ('normal', 'urgent')`,
     ),
+    check("chat_messages_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     index("idx_chat_messages_conversation_created").on(
       table.conversationId,
       table.createdAt,
@@ -243,6 +265,7 @@ export const supportEvents = sqliteTable(
     assignedTeacherUserId: text("assigned_teacher_user_id"),
     acknowledgedAt: text("acknowledged_at"),
     resolvedAt: text("resolved_at"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
     createdAt: text("created_at").notNull(),
   },
   (table) => [
@@ -259,6 +282,7 @@ export const supportEvents = sqliteTable(
       "support_events_status_check",
       sql`${table.status} IN ('new', 'acknowledged', 'resolved')`,
     ),
+    check("support_events_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     index("idx_support_events_class_created").on(table.classId, table.createdAt),
     index("idx_support_events_user_created").on(table.userId, table.createdAt),
   ],

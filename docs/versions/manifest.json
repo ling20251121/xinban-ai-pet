@@ -1,7 +1,7 @@
 {
   "project": "XinBan AI-Pet",
   "updatedAt": "2026-08-12",
-  "current": "v5.2.0",
+  "current": "v5.3.0",
   "versions": [
     {
       "version": "v1.0.0",
@@ -125,6 +125,43 @@
       "realStudentData": false,
       "prefilledResearchResults": false,
       "approvedAsResearchResults": false
+    },
+    {
+      "version": "v5.3.0",
+      "type": "adult-operated-synthetic-school-sandbox",
+      "commit": null,
+      "fixedPath": "./v5.3.0/",
+      "participants": [
+        "adult-testers-only"
+      ],
+      "fictionalRoles": {
+        "teachers": 1,
+        "students": 3
+      },
+      "scenarioDesign": "three-fixed-seeded-synthetic-starting-scenarios",
+      "authentication": "random-synthetic-credentials-shown-once-to-deployer",
+      "database": "synthetic-only-sandbox-with-fail-closed-non-synthetic-check",
+      "primaryModel": "Qwen",
+      "sessionLimits": {
+        "minutes": 15,
+        "studentTurns": 12
+      },
+      "voice": [
+        "Qwen ASR",
+        "Qwen TTS"
+      ],
+      "teacherWorkflow": "synthetic-minimum-necessary-support-queue-and-simulated-disposition",
+      "piiPolicy": "reject-before-storage-or-model-call",
+      "evaluationDataIsolation": "not-written-to-v5.2-evaluate-research-tables",
+      "archivePageNetworkRequests": false,
+      "archivePageForms": false,
+      "archivePageScripts": false,
+      "browserStorage": false,
+      "liveModelKeyIncluded": false,
+      "realStudentData": false,
+      "approvedForRealMinorPilot": false,
+      "approvedAsResearchResults": false,
+      "interventionEffectClaim": false
     }
   ]
 }

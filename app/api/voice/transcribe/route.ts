@@ -16,6 +16,9 @@ import {
   reserveVoiceRequest,
   type VoiceRequestLease,
 } from "@/lib/voice-rate-limit";
+import { getRuntimeEnv } from "@/db";
+import { rejectSandboxPersonalInformation } from "@/lib/content-safety";
+import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
 
 export async function POST(request: Request): Promise<Response> {
   let lease: VoiceRequestLease | undefined;
@@ -31,6 +34,9 @@ export async function POST(request: Request): Promise<Response> {
     const text = await transcribeWithQwen(audio, () =>
       lease?.claimFingerprint(audio.fingerprint),
     );
+    if (isSyntheticSchoolSandbox(getRuntimeEnv())) {
+      rejectSandboxPersonalInformation(text);
+    }
     const safety = analyzeSafety(text);
     if (safety.urgent && user.role === "student") {
       await recordUrgentEvent(user, "voice", null);

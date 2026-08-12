@@ -3,14 +3,14 @@ import LoginPanel from "./LoginPanel";
 import "./login.css";
 import { redirect } from "next/navigation";
 import { getRuntimeEnv } from "@/db";
-import { isAdultEvaluationOnly } from "@/lib/public-demo";
+import { schoolSurfacesEnabled } from "@/lib/public-demo";
 
 export const metadata: Metadata = {
   title: "登录｜心伴 AI-Pet",
-  description: "使用学校发放的心伴 AI-Pet 账号登录。",
+  description: "仅限 18+ 成人测试者使用部署方发放的虚构角色凭据进入合成沙盒。",
 };
 
 export default function LoginPage() {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) redirect("/evaluate");
+  if (!schoolSurfacesEnabled(getRuntimeEnv())) redirect("/evaluate");
   return <LoginPanel />;
 }

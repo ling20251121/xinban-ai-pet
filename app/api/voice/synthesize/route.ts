@@ -13,6 +13,9 @@ import {
   reserveVoiceRequest,
   type VoiceRequestLease,
 } from "@/lib/voice-rate-limit";
+import { getRuntimeEnv } from "@/db";
+import { rejectSandboxPersonalInformation } from "@/lib/content-safety";
+import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
 
 export async function POST(request: Request): Promise<Response> {
   let lease: VoiceRequestLease | undefined;
@@ -21,6 +24,9 @@ export async function POST(request: Request): Promise<Response> {
     await requireVoiceUser(request);
     lease = reserveVoiceRequest(request);
     const payload = parseTtsPayload(await readJsonBody<unknown>(request));
+    if (isSyntheticSchoolSandbox(getRuntimeEnv())) {
+      rejectSandboxPersonalInformation(payload.text.normalize("NFKC"));
+    }
     lease.claimFingerprint(`tts-${speechFingerprint(payload.text)}`);
     const audio = await synthesizeWithQwen(payload.text);
     const responseBody = new Uint8Array(audio.byteLength);

@@ -9,6 +9,7 @@ if (!/^postgres(?:ql)?:\/\//iu.test(databaseUrl)) {
 const migrationUrls = [
   new URL("../postgres/0001_v5_1_system.sql", import.meta.url),
   new URL("../postgres/0002_adult_evaluation.sql", import.meta.url),
+  new URL("../postgres/0003_synthetic_school_sandbox.sql", import.meta.url),
 ];
 const insecureLocal = process.env.DATABASE_ALLOW_INSECURE_LOCAL?.trim().toLowerCase();
 if (insecureLocal && insecureLocal !== "true" && insecureLocal !== "false") {
@@ -21,7 +22,7 @@ try {
   for (const migrationUrl of migrationUrls) {
     await pool.query(await readFile(migrationUrl, "utf8"));
   }
-  process.stdout.write("PostgreSQL migrations 0001 and 0002 are ready.\n");
+  process.stdout.write("PostgreSQL migrations 0001, 0002 and 0003 are ready.\n");
 } finally {
   await pool.end();
 }

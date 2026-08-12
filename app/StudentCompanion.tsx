@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import SandboxNotice from "./SandboxNotice";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -104,6 +105,12 @@ const providerNames: Record<string, string> = {
 
 const crisisMessage =
   "如果你现在可能伤害自己或他人，请立刻离开危险物品和危险地点，去找身边可信任的成年人。紧急危险请拨打 110 或 120。";
+
+const sandboxScenarios = [
+  { match: ["student1", "demo-s01", "sandbox-s01"], code: "S01 · 学习压力", text: "你扮演一位在数学测验前有些紧张的虚构学生。记录“紧张”，提到最后一道题没做完，并请 AI 帮你想一个小步骤。" },
+  { match: ["student2", "demo-s02", "sandbox-s02"], code: "S02 · 同伴相处", text: "你扮演一位因虚构小组合作而有些低落的学生。记录“难过”，说自己的意见没被听见，再测试“请求老师支持”。" },
+  { match: ["student3", "demo-s03", "sandbox-s03"], code: "S03 · 积极日常", text: "你扮演一位因完成虚构科学小实验而开心的学生。记录“开心”，说一件想记住的小事，再和 AI 继续两轮对话。" },
+];
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -482,7 +489,7 @@ export default function StudentCompanion() {
   async function deleteExistingData() {
     if (dataRightsBusy) return;
     const confirmed = window.confirm(
-      "这会删除你的心情记录和 AI 对话原文，且无法恢复。为了学校安全处置留痕，不含原文的结构化安全事件可能按学校批准期限保留。确定继续吗？",
+      "这会删除本轮合成心情记录和 AI 对话原文，且无法恢复。不含原文的模拟事件留痕可能按演示保留期限存储。确定继续吗？",
     );
     if (!confirmed) return;
     setDataRightsBusy(true);
@@ -509,7 +516,7 @@ export default function StudentCompanion() {
       }
       setEntries([]);
       setDataRightsMessage(
-        "已删除你的心情记录和 AI 对话原文。不含原文的结构化安全事件可能按学校批准期限保留。",
+        "已删除本轮合成心情记录和 AI 对话原文。不含原文的模拟事件留痕可能按演示保留期限存储。",
       );
     } catch (deleteError) {
       setDataRightsMessage(
@@ -668,7 +675,7 @@ export default function StudentCompanion() {
         setPhase("saved");
         throw new Error(
           chatResponse.status === 503
-            ? "心情已保存，但学校暂未配置 AI 对话。你仍可以找真人聊聊。"
+            ? "合成心情已保存，但演示服务暂未配置 AI 对话。"
             : chatData.error || "心情已保存，但 AI 对话暂时无法开始",
         );
       }
@@ -839,7 +846,7 @@ export default function StudentCompanion() {
       if (!response.ok) {
         throw new Error(
           response.status === 503
-            ? "学校暂未配置语音转写，请改用文字输入。"
+            ? "演示服务暂未配置语音转写，请改用文字输入。"
             : data.error || "语音转写没有完成",
         );
       }
@@ -1032,7 +1039,7 @@ export default function StudentCompanion() {
     return (
       <main className="app-loading" aria-busy="true">
         <Image src="/dog.svg" alt="" width={88} height={88} priority />
-        <p>正在确认学校账号……</p>
+        <p>正在确认合成演示账号……</p>
       </main>
     );
   }
@@ -1041,7 +1048,7 @@ export default function StudentCompanion() {
     return (
       <main className="app-loading">
         <h1>暂时无法进入</h1>
-        <p>没有连接到学校服务，请检查网络后重试。</p>
+        <p>没有连接到演示服务，请检查网络后重试。</p>
         <button className="primary-button" type="button" onClick={() => window.location.reload()}>
           重新尝试
         </button>
@@ -1058,10 +1065,10 @@ export default function StudentCompanion() {
             <span>心伴 AI-Pet</span>
           </div>
           <p className="eyebrow">首次登录保护</p>
-          <h1 id="password-title">先把学校发放的初始密码换掉</h1>
-          <p className="consent-lead">新密码只用于你的学校账号。请不要使用姓名、生日、班级或常用社交账号密码。</p>
+          <h1 id="password-title">先把部署方发放的演示初始密码换掉</h1>
+          <p className="consent-lead">新密码只用于本次合成演示。请不要使用个人常用密码或任何真实信息。</p>
           <form className="password-form" onSubmit={changeInitialPassword}>
-            <label htmlFor="current-password">学校发放的初始密码</label>
+            <label htmlFor="current-password">演示初始密码</label>
             <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
             <label htmlFor="new-password">设置新密码</label>
             <input id="new-password" type="password" autoComplete="new-password" value={newPassword} minLength={12} onChange={(event) => setNewPassword(event.target.value)} required aria-describedby="new-password-help" />
@@ -1091,17 +1098,17 @@ export default function StudentCompanion() {
             心伴用于记录每日心情，并在你主动选择时提供短时 AI 对话。它不是心理诊断，也不能代替老师、家长、医生或紧急服务。
           </p>
           <div className={`guardian-status ${user.guardianConsentVerified ? "is-verified" : "is-blocked"}`}>
-            <strong>监护人同意：{user.guardianConsentVerified ? "学校已核验" : "学校尚未核验"}</strong>
+            <strong>模拟前置状态：{user.guardianConsentVerified ? "已开启" : "尚未开启"}</strong>
             <p>
               {user.guardianConsentVerified
                 ? "你可以阅读并确认自己的使用意愿。"
-                : "在学校完成监护人同意核验前，你不能进入记录或 AI 对话。请联系老师。"}
+                : "请由虚构教师角色开启模拟前置状态，再测试记录与 AI 对话。"}
             </p>
           </div>
           <ul className="consent-points">
-            <li>心情记录会保存在学校部署的服务中；你可以查看和删除自己的内容。</li>
-            <li>只有你主动选择 AI 对话时，相关文字才会发送给学校配置的模型。</li>
-            <li>AI 可能出错；遇到安全问题应立即找真人，紧急危险拨打 110 或 120。</li>
+            <li>合成心情记录会保存在演示沙盒中；你可以查看和删除本角色内容。</li>
+            <li>只有你主动选择 AI 对话时，合成文字才会发送给演示配置的 Qwen 模型。</li>
+            <li>仅限 18 岁以上测试者；禁止输入真实学生、学校或联系方式。</li>
             <li>老师只查看班级汇总、支持请求和最少必要安全线索，不查看普通聊天原文。</li>
           </ul>
           <form onSubmit={acceptConsent}>
@@ -1152,10 +1159,18 @@ export default function StudentCompanion() {
     weekday: "long",
   }).format(new Date());
   const displayName = user.displayName?.trim() || user.username;
+  const normalizedSandboxUsername = user.username.toLowerCase();
+  const sandboxScenario = sandboxScenarios.find((item) =>
+    item.match.some((token) => normalizedSandboxUsername.includes(token)),
+  ) || {
+    code: "部署方发放的虚构情境",
+    text: "请使用与此虚构账号一起发放的情境卡，不要使用自己或任何真实学生的经历。",
+  };
 
   return (
     <div className="student-app" lang="zh-CN">
       <a className="skip-link" href="#student-main">跳到主要内容</a>
+      <SandboxNotice surface="student" />
       <header className="student-topbar">
         <a className="student-brand" href="#student-main" aria-label="心伴 AI-Pet 首页">
           <Image src="/dog.svg" alt="" width={44} height={44} priority />
@@ -1177,7 +1192,7 @@ export default function StudentCompanion() {
           <a href="#human-help">找真人</a>
         </nav>
         <div className="student-account">
-          <span><small>学校账号</small>{displayName}</span>
+          <span><small>虚构学生账号</small>{displayName}</span>
           <button type="button" onClick={logout}>退出</button>
         </div>
       </header>
@@ -1187,9 +1202,18 @@ export default function StudentCompanion() {
           <div>
             <p className="eyebrow">{today}</p>
             <h1 id="student-title">嗨，{displayName}。今天心里是什么天气？</h1>
-            <p>不用写得完整，也没有标准答案。先照顾此刻真实的感受。</p>
+            <p>请扮演给定的虚构情境，测试心情记录、语音转写和 AI 持续对话。不要描述自己或任何真实学生。</p>
           </div>
-          <div className="privacy-pill"><span aria-hidden="true">●</span> 学校账号 · 隐私优先</div>
+          <div className="privacy-pill"><span aria-hidden="true">●</span> 成人扮演 · 合成情境</div>
+        </section>
+
+        <section className="sandbox-scenario-card" aria-labelledby="sandbox-scenario-title">
+          <span aria-hidden="true">剧本</span>
+          <div>
+            <p className="eyebrow">本账号固定虚构情境</p>
+            <h2 id="sandbox-scenario-title">{sandboxScenario.code}</h2>
+            <p>{sandboxScenario.text}</p>
+          </div>
         </section>
 
         {urgent && (
@@ -1294,14 +1318,14 @@ export default function StudentCompanion() {
                   />
                   <span id="note-count" className="char-count">{noteRemaining} 字可用</span>
                 </div>
-                <p id="note-privacy" className="privacy-note">这段文字会随心情记录保存。老师不会看到普通 AI 对话原文。</p>
+                <p id="note-privacy" className="privacy-note">这段合成文字会随心情记录保存。禁止输入真实姓名、学号、班级、学校、地址或联系方式；模拟教师不会看到普通 AI 对话原文。</p>
 
                 {recordingState !== "idle" && (
                   <div id="voice-panel" className={`voice-panel state-${recordingState}`} aria-live="polite">
                     {recordingState === "notice" && (
                       <>
                         <strong>录音前请确认</strong>
-                        <p>最多录 30 秒、文件不超过 2.5MB（优先使用压缩录音格式）。音频只用于本次转写，不保存；转写文字可修改。</p>
+                        <p>最多录 30 秒。只说虚构情境，禁止说出真实个人或学校信息。音频会发送至阿里云百炼 / Qwen 语音识别服务进行转写；本应用不保存原始音频，转写文字可修改。</p>
                         <div className="inline-actions">
                           <button type="button" className="small-primary" onClick={startRecording}>允许并开始</button>
                           <button type="button" className="small-quiet" onClick={cancelRecording}>取消</button>
@@ -1350,11 +1374,11 @@ export default function StudentCompanion() {
               <div className="choice-panel">
                 <label className="check-row">
                   <input aria-label="我希望老师或辅导员联系我" type="checkbox" checked={wantsSupport} onChange={(event) => setWantsSupport(event.target.checked)} />
-                  <span><strong>我希望老师或辅导员联系我</strong><small>这会进入真人支持队列，不等于评价或诊断。</small></span>
+                  <span><strong>测试“请求老师支持”</strong><small>这会进入模拟教师处置队列，不会联系任何真实学生或学校。</small></span>
                 </label>
                 <label className="check-row">
                   <input aria-label="保存后进入一次短时 AI 对话" type="checkbox" checked={wantsAi} onChange={(event) => setWantsAi(event.target.checked)} />
-                  <span><strong>保存后进入一次短时 AI 对话</strong><small>最多 15 分钟或 12 轮；内容可能发送给学校配置的 Qwen 北京模型。</small></span>
+                  <span><strong>保存后进入一次短时 AI 对话</strong><small>最多 15 分钟或 12 轮；合成内容可能发送给演示配置的 Qwen 北京模型。</small></span>
                 </label>
               </div>
 
@@ -1362,7 +1386,7 @@ export default function StudentCompanion() {
               <button className="save-button" type="submit" disabled={!selectedMood || submitting}>
                 {submitting ? "正在保存……" : wantsAi ? "保存并进入 AI 对话" : "只保存心情"}
               </button>
-              <p className="submit-boundary">先保存到学校服务；只有勾选 AI 对话才会调用模型。AI 不是心理诊断。</p>
+              <p className="submit-boundary">合成内容会保存到演示沙盒；只有勾选 AI 对话才会调用 Qwen。这是成人模拟测试，不是心理服务。</p>
             </form>
           </section>
         )}
@@ -1380,7 +1404,7 @@ export default function StudentCompanion() {
               <header className="conversation-header">
                 <div>
                   <div className="ai-identity"><span aria-hidden="true">AI</span><strong id="conversation-title">小伴对话</strong></div>
-                  <p>AI 生成 · 可能有误 · {providerNames[provider] || provider || "学校配置模型"}</p>
+                  <p>AI 生成 · 可能有误 · {providerNames[provider] || provider || "演示配置模型"}</p>
                 </div>
                 <div className="conversation-limits" aria-label="会话剩余限制">
                   <span><strong>{formatCountdown(secondsRemaining)}</strong> 剩余时间</span>
@@ -1498,7 +1522,7 @@ export default function StudentCompanion() {
                       {recordingState === "notice" && (
                         <>
                           <strong>录音前请确认</strong>
-                          <p>最多 30 秒且不超过 2.5MB。音频只用于转写、不保存；文字会先放进输入框，由你检查后再发送。</p>
+                          <p>最多 30 秒且不超过 2.5MB。只说虚构情境，禁止说出真实个人或学校信息。音频会发送至阿里云百炼 / Qwen 语音识别服务进行转写；本应用不保存原始音频，文字会先放进输入框由你检查。</p>
                           <div className="inline-actions"><button type="button" className="small-primary" onClick={startRecording}>允许并开始</button><button type="button" className="small-quiet" onClick={cancelRecording}>取消</button></div>
                         </>
                       )}
@@ -1548,14 +1572,14 @@ export default function StudentCompanion() {
                     <span className={`history-dot tone-${moodOptions.find((mood) => mood.id === entry.mood)?.tone || "mist"}`}></span>
                     <div><strong>{moodOptions.find((mood) => mood.id === entry.mood)?.label || "已记录"}</strong><time>{formatDate(entry.createdAt)}</time></div>
                     <p>{entry.note || entry.goal || "这次只记录了心情。"}</p>
-                    {entry.wantsSupport && <span className="support-tag">已请求真人支持</span>}
+                    {entry.wantsSupport && <span className="support-tag">已发出模拟支持请求</span>}
                   </article>
                 ))}
               </div>
             ) : (
               <p className="empty-state">还没有记录。第一条可以只选一个心情，不必写文字。</p>
             )}
-            <p className="history-summary">当前载入 {recentSummary.count} 条，其中 {recentSummary.supportCount} 条请求了真人支持。</p>
+            <p className="history-summary">当前载入 {recentSummary.count} 条合成记录，其中 {recentSummary.supportCount} 条发出了模拟支持请求。</p>
           </section>
         )}
 
@@ -1572,7 +1596,7 @@ export default function StudentCompanion() {
       <a className="mobile-human-help" href="#human-support-card">找真人帮助</a>
       <footer className="student-footer">
         <div>
-          <p>心伴 AI-Pet · 学校支持工具，不是诊断或评价系统</p>
+          <p>心伴 AI-Pet · 成人合成演示沙盒，不是学校服务</p>
           <p>AI 生成内容可能有误；安全问题请立即找真人。</p>
         </div>
         <button
@@ -1609,7 +1633,7 @@ export default function StudentCompanion() {
             </h2>
             <div id="withdraw-consent-description" className="withdraw-explanation">
               <p>确认后，你会立即退出，系统将停止新的心情记录、AI 对话、语音转写与云端朗读。</p>
-              <p><strong>这不会自动删除已有内容。</strong>你以后仍可使用学校账号登录，并导出或删除自己的已有记录与会话。</p>
+              <p><strong>这不会自动删除已有合成内容。</strong>你以后仍可使用演示账号登录，并导出或删除本角色的已有记录与会话。</p>
             </div>
             <div className="withdraw-warning">
               若只是想暂停，可以选择“暂不撤回”，直接退出账号即可。

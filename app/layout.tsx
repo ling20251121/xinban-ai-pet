@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
   const origin = new URL(`${protocol}://${host}`);
   const title = "心伴 AI-Pet";
-  const description = "面向中国中小学生的日常心情记录、AI 低压力回应与教师人工支持研究原型。";
+  const description = "仅限 18 岁以上测试者的合成学校沙盒：扮演虚构学生与教师，评估心情记录、AI 对话和模拟处置流程。";
 
   return {
     metadataBase: origin,

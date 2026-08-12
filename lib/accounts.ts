@@ -10,7 +10,11 @@ import {
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
 import { getRuntimeEnv } from "@/db";
-import { isAdultEvaluationOnly, isPublicDemoMode } from "@/lib/public-demo";
+import {
+  isAdultEvaluationOnly,
+  isPublicDemoMode,
+  isSyntheticSchoolSandbox,
+} from "@/lib/public-demo";
 
 function text(value: unknown, label: string, max: number): string {
   if (typeof value !== "string") throw new ApiError(400, `${label}格式不正确。`);
@@ -43,6 +47,7 @@ interface ClassRow {
   safety_contact_phone: string;
   created_at: string;
   student_count: number;
+  synthetic: number;
 }
 
 interface StudentRow {
@@ -58,6 +63,7 @@ interface StudentRow {
   student_consent_version: string | null;
   student_consent_withdrawn_at: string | null;
   created_at: string;
+  synthetic: number;
 }
 
 function mapClass(row: ClassRow) {
@@ -69,6 +75,7 @@ function mapClass(row: ClassRow) {
     safetyContactPhone: row.safety_contact_phone,
     studentCount: Number(row.student_count ?? 0),
     createdAt: row.created_at,
+    synthetic: Number(row.synthetic) === 1,
   };
 }
 
@@ -87,17 +94,21 @@ function mapStudent(row: StudentRow) {
       !row.student_consent_withdrawn_at &&
       Boolean(row.student_consent_version),
     createdAt: row.created_at,
+    synthetic: Number(row.synthetic) === 1,
   };
 }
 
 async function requireOwnedClass(teacherId: string, classId: string) {
   const database = await getSystemDatabase();
   const classroom = await database
-    .prepare("SELECT id,active FROM school_classes WHERE id=? AND teacher_user_id=?")
+    .prepare("SELECT id,active,synthetic FROM school_classes WHERE id=? AND teacher_user_id=?")
     .bind(classId, teacherId)
-    .first<{ id: string; active: number }>();
+    .first<{ id: string; active: number; synthetic: number }>();
   if (!classroom) throw new ApiError(404, "没有找到这个班级。");
   if (Number(classroom.active) !== 1) throw new ApiError(409, "这个班级已停用。");
+  if (isSyntheticSchoolSandbox(getRuntimeEnv()) && Number(classroom.synthetic) !== 1) {
+    throw new ApiError(404, "没有找到这个合成班级。");
+  }
   return classroom;
 }
 
@@ -105,6 +116,9 @@ export async function createClass(
   teacher: SessionUser,
   input: Record<string, unknown>,
 ) {
+  if (isSyntheticSchoolSandbox(getRuntimeEnv())) {
+    throw new ApiError(403, "合成沙盒的班级由受保护的初始化接口创建，不能输入现实学校信息。");
+  }
   const name = text(input.name, "班级名称", 60);
   const contactName = text(input.safetyContactName, "安全联系人姓名", 40);
   const contactPhone = phone(input.safetyContactPhone);
@@ -112,8 +126,8 @@ export async function createClass(
   const classId = crypto.randomUUID();
   const now = new Date().toISOString();
   await database.prepare(`INSERT INTO school_classes
-    (id,teacher_user_id,name,safety_contact_name,safety_contact_phone,active,created_at,updated_at)
-    VALUES (?,?,?,?,?,1,?,?)`)
+    (id,teacher_user_id,name,safety_contact_name,safety_contact_phone,synthetic,active,created_at,updated_at)
+    VALUES (?,?,?,?,?,0,1,?,?)`)
     .bind(classId, teacher.id, name, contactName, contactPhone, now, now).run();
   return {
     id: classId,
@@ -122,6 +136,7 @@ export async function createClass(
     safetyContactName: contactName,
     safetyContactPhone: contactPhone,
     studentCount: 0,
+    synthetic: false,
     createdAt: now,
   };
 }
@@ -129,11 +144,12 @@ export async function createClass(
 export async function listClasses(teacherId: string) {
   const database = await getSystemDatabase();
   const result = await database.prepare(`SELECT c.id,c.name,c.active,
-    c.safety_contact_name,c.safety_contact_phone,c.created_at,
+    c.safety_contact_name,c.safety_contact_phone,c.synthetic,c.created_at,
     COUNT(CASE WHEN u.role='student' THEN 1 END) AS student_count
     FROM school_classes c LEFT JOIN app_users u ON u.class_id=c.id
-    WHERE c.teacher_user_id=? GROUP BY c.id ORDER BY c.created_at DESC`)
-    .bind(teacherId).all<ClassRow>();
+    WHERE c.teacher_user_id=? AND (?=0 OR c.synthetic=1)
+    GROUP BY c.id ORDER BY c.created_at DESC`)
+    .bind(teacherId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).all<ClassRow>();
   return result.results.map(mapClass);
 }
 
@@ -142,7 +158,11 @@ export async function createStudent(
   teacher: SessionUser,
   input: Record<string, unknown>,
 ) {
-  if (isAdultEvaluationOnly(getRuntimeEnv()) || isPublicDemoMode(getRuntimeEnv())) {
+  const runtime = getRuntimeEnv();
+  if (isSyntheticSchoolSandbox(runtime)) {
+    throw new ApiError(403, "合成沙盒账号只能由受保护的初始化接口生成。");
+  }
+  if (isAdultEvaluationOnly(runtime) || isPublicDemoMode(runtime)) {
     throw new ApiError(403, "公开演示模式不允许创建真实学生账号。");
   }
   const classId = id(input.classId, "班级编号");
@@ -167,8 +187,8 @@ export async function createStudent(
       active,class_id,age_band,must_change_password,
       guardian_consent_verified_at,guardian_consent_verified_by,
       student_consented_at,student_consent_version,student_consent_withdrawn_at,
-      created_by_user_id,failed_login_count,created_at,updated_at
-    ) VALUES (?,'student',?,?,?,?,?,1,?,?,1,?,?,NULL,NULL,NULL,?,0,?,?)`)
+      created_by_user_id,failed_login_count,synthetic,created_at,updated_at
+    ) VALUES (?,'student',?,?,?,?,?,1,?,?,1,?,?,NULL,NULL,NULL,?,0,0,?,?)`)
       .bind(
         studentId, username, displayName, passwordData.salt, passwordData.hash,
         passwordData.iterations, classId, input.ageBand,
@@ -195,8 +215,9 @@ export async function listStudents(teacherId: string, classIdValue: string | nul
   const result = await database.prepare(`SELECT u.* FROM app_users u
     JOIN school_classes c ON c.id=u.class_id
     WHERE u.role='student' AND c.teacher_user_id=? AND (? IS NULL OR u.class_id=?)
+      AND (?=0 OR (u.synthetic=1 AND c.synthetic=1))
     ORDER BY u.created_at DESC`)
-    .bind(teacherId, classId, classId).all<StudentRow>();
+    .bind(teacherId, classId, classId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).all<StudentRow>();
   return result.results.map(mapStudent);
 }
 
@@ -208,8 +229,9 @@ export async function updateStudent(
   const database = await getSystemDatabase();
   const existing = await database.prepare(`SELECT u.* FROM app_users u
     JOIN school_classes c ON c.id=u.class_id
-    WHERE u.id=? AND u.role='student' AND c.teacher_user_id=?`)
-    .bind(studentId, teacher.id).first<StudentRow>();
+    WHERE u.id=? AND u.role='student' AND c.teacher_user_id=?
+      AND (?=0 OR (u.synthetic=1 AND c.synthetic=1))`)
+    .bind(studentId, teacher.id, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).first<StudentRow>();
   if (!existing) throw new ApiError(404, "没有找到这个学生账号。");
   if (
     input.active === undefined &&

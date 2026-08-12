@@ -1,7 +1,12 @@
 import { getRuntimeEnv } from "@/db";
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
-import { isAdultEvaluationOnly, requireStudentMode } from "@/lib/public-demo";
+import {
+  isAdultEvaluationOnly,
+  isSyntheticSchoolSandbox,
+  requireStudentMode,
+  schoolSurfacesEnabled,
+} from "@/lib/public-demo";
 
 const encoder = new TextEncoder();
 const PASSWORD_ITERATIONS = 210_000;
@@ -31,6 +36,7 @@ interface AuthRow {
   failed_login_count: number;
   locked_until: string | null;
   class_active: number | null;
+  synthetic: number;
   safety_contact_name: string | null;
   safety_contact_phone: string | null;
 }
@@ -48,6 +54,7 @@ export interface SessionUser {
   studentConsented: boolean;
   consentVersion: string | null;
   safetyContact: { name: string; phone: string } | null;
+  synthetic: boolean;
 }
 
 export interface AuthSession {
@@ -199,6 +206,7 @@ function mapUser(row: AuthRow): SessionUser {
       row.safety_contact_name && row.safety_contact_phone
         ? { name: row.safety_contact_name, phone: row.safety_contact_phone }
         : null,
+    synthetic: Number(row.synthetic) === 1,
   };
 }
 
@@ -245,7 +253,8 @@ export async function createSession(userId: string): Promise<string> {
 }
 
 export async function getOptionalSession(request: Request): Promise<AuthSession | null> {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) return null;
+  const runtime = getRuntimeEnv();
+  if (!schoolSurfacesEnabled(runtime)) return null;
   const token = cookieValue(request);
   if (!token) return null;
   const tokenHash = await sha256(token);
@@ -258,6 +267,7 @@ export async function getOptionalSession(request: Request): Promise<AuthSession 
     .bind(tokenHash, now)
     .first<AuthRow>();
   if (!row || Number(row.active) !== 1) return null;
+  if (isSyntheticSchoolSandbox(runtime) && Number(row.synthetic) !== 1) return null;
   if (row.role === "student" && Number(row.class_active) !== 1) return null;
   await database
     .prepare("UPDATE auth_sessions SET last_seen_at=? WHERE token_hash=?")
@@ -273,11 +283,15 @@ export async function requireSession(request: Request): Promise<AuthSession> {
 }
 
 export async function requireTeacher(request: Request): Promise<AuthSession> {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+  const runtime = getRuntimeEnv();
+  if (!schoolSurfacesEnabled(runtime)) {
     throw new ApiError(403, "成人评估模式不启用学校教师工作台。");
   }
   const session = await requireSession(request);
   if (session.user.role !== "teacher") throw new ApiError(403, "仅教师账号可以访问。");
+  if (isSyntheticSchoolSandbox(runtime) && !session.user.synthetic) {
+    throw new ApiError(403, "合成沙盒只允许虚构教师账号。");
+  }
   return session;
 }
 
@@ -286,6 +300,9 @@ export async function requireStudentReady(request: Request): Promise<AuthSession
   const session = await requireSession(request);
   const user = session.user;
   if (user.role !== "student") throw new ApiError(403, "仅学生账号可以使用此功能。");
+  if (isSyntheticSchoolSandbox(getRuntimeEnv()) && !user.synthetic) {
+    throw new ApiError(403, "合成沙盒只允许虚构学生账号。");
+  }
   if (user.mustChangePassword) throw new ApiError(403, "请先修改学校发放的初始密码。");
   if (!user.guardianConsentVerified) {
     throw new ApiError(403, "监护人同意尚未由教师核验，暂不能使用此功能。");
@@ -301,14 +318,21 @@ export async function requireStudentIdentity(request: Request): Promise<AuthSess
   if (session.user.role !== "student") {
     throw new ApiError(403, "仅学生账号可以访问本人数据。");
   }
+  if (isSyntheticSchoolSandbox(getRuntimeEnv()) && !session.user.synthetic) {
+    throw new ApiError(403, "合成沙盒只允许虚构学生账号。");
+  }
   return session;
 }
 
 export async function requireVoiceUser(request: Request): Promise<AuthSession> {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+  const runtime = getRuntimeEnv();
+  if (!schoolSurfacesEnabled(runtime)) {
     throw new ApiError(403, "成人评估模式不启用账号语音接口。");
   }
   const session = await requireSession(request);
+  if (isSyntheticSchoolSandbox(runtime) && !session.user.synthetic) {
+    throw new ApiError(403, "合成沙盒只允许虚构账号使用语音功能。");
+  }
   if (session.user.role === "student") {
     requireStudentMode(getRuntimeEnv());
     return requireStudentReady(request);
@@ -365,7 +389,11 @@ export async function bootstrapTeacher(input: {
   password: unknown;
   displayName?: unknown;
 }): Promise<SessionUser> {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+  const runtime = getRuntimeEnv();
+  if (isSyntheticSchoolSandbox(runtime)) {
+    throw new ApiError(403, "合成沙盒请使用受保护的沙盒初始化接口。");
+  }
+  if (isAdultEvaluationOnly(runtime)) {
     throw new ApiError(403, "成人评估模式不创建学校教师账号。");
   }
   const configured = getRuntimeEnv().AUTH_BOOTSTRAP_TOKEN?.trim() ?? "";
@@ -410,7 +438,8 @@ export async function bootstrapTeacher(input: {
 }
 
 export async function login(usernameValue: unknown, passwordValue: unknown): Promise<SessionUser> {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+  const runtime = getRuntimeEnv();
+  if (!schoolSurfacesEnabled(runtime)) {
     throw new ApiError(403, "当前公开版本仅使用一次性评估码，不开放学校账号登录。");
   }
   const username = normalizeSchoolUsername(usernameValue);
@@ -423,6 +452,9 @@ export async function login(usernameValue: unknown, passwordValue: unknown): Pro
     .first<AuthRow>();
   const now = new Date();
   if (!row || Number(row.active) !== 1 || (row.locked_until && row.locked_until > now.toISOString())) {
+    throw new ApiError(401, "用户名或密码不正确，或账号暂时不可用。");
+  }
+  if (isSyntheticSchoolSandbox(runtime) && Number(row.synthetic) !== 1) {
     throw new ApiError(401, "用户名或密码不正确，或账号暂时不可用。");
   }
   if (!(await verifyPassword(password, row))) {

@@ -33,6 +33,8 @@ export interface RuntimeConfig {
   AUTH_BOOTSTRAP_TOKEN?: string;
   PUBLIC_DEMO_MODE?: string;
   ADULT_EVALUATION_ONLY?: string;
+  SANDBOX_MODE?: string;
+  SANDBOX_ADMIN_KEY?: string;
   EVALUATION_TEACHER_CODES?: string;
   EVALUATION_EXPERT_CODES?: string;
   RESEARCH_ACCESS_KEY?: string;

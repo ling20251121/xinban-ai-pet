@@ -1,6 +1,6 @@
 {
   "name": "xinban-ai-pet",
-  "version": "5.2.0",
+  "version": "5.3.0",
   "private": true,
   "packageManager": "pnpm@11.16.0",
   "engines": {
@@ -12,7 +12,7 @@
     "build:postgres": "node scripts/build-postgres.mjs",
     "start": "vinext start",
     "start:postgres": "node scripts/start-postgres.mjs",
-    "test": "pnpm run build && node --test --test-concurrency=1 tests/rendered-html.test.mjs tests/v5-controlled-system.test.mjs tests/v5-postgres-adapter.test.mjs tests/v5-evaluation.test.mjs",
+    "test": "pnpm run build && node --test --test-concurrency=1 tests/rendered-html.test.mjs tests/v5-controlled-system.test.mjs tests/v5-postgres-adapter.test.mjs tests/v5-evaluation.test.mjs tests/v5-synthetic-sandbox.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:postgres:migrate": "node scripts/migrate-postgres.mjs",

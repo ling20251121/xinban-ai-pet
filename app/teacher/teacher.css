@@ -20,6 +20,28 @@
   line-height: 1.55;
 }
 
+.teacher-shell > .sandbox-notice { top: 0; }
+.teacher-shell > .sandbox-notice + .teacher-topbar { top: 58px; }
+.sandbox-managed-accounts { align-items: center; }
+.sandbox-managed-badge {
+  display: inline-flex;
+  max-width: 230px;
+  min-height: 42px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px dashed #c79343;
+  border-radius: 12px;
+  background: #fff8e7;
+  color: #745020;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+@media (max-width: 660px) {
+  .teacher-shell > .sandbox-notice + .teacher-topbar { top: 0; position: relative; }
+}
+
 /* v5 authenticated teacher workbench */
 .teacher-shell {
   --teacher-violet: #6955b3;

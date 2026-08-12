@@ -182,6 +182,8 @@ export function createPostgresDatabase(environment: NodeJS.ProcessEnv): {
       AUTH_BOOTSTRAP_TOKEN: environment.AUTH_BOOTSTRAP_TOKEN,
       PUBLIC_DEMO_MODE: environment.PUBLIC_DEMO_MODE,
       ADULT_EVALUATION_ONLY: environment.ADULT_EVALUATION_ONLY,
+      SANDBOX_MODE: environment.SANDBOX_MODE,
+      SANDBOX_ADMIN_KEY: environment.SANDBOX_ADMIN_KEY,
       EVALUATION_TEACHER_CODES: environment.EVALUATION_TEACHER_CODES,
       EVALUATION_EXPERT_CODES: environment.EVALUATION_EXPERT_CODES,
       RESEARCH_ACCESS_KEY: environment.RESEARCH_ACCESS_KEY,

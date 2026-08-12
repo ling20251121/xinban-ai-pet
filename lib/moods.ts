@@ -1,6 +1,8 @@
 import { ApiError } from "@/lib/http";
 import type { SafetyLevel } from "@/lib/safety";
 import { getSystemDatabase } from "@/lib/system-db";
+import { getRuntimeEnv } from "@/db";
+import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
 
 interface MoodRow {
   id: string; mood: string; mood_score: number; note: string; goal: string;
@@ -15,7 +17,7 @@ export interface PublicMoodEntry {
 export interface NewMoodEntry {
   userId: string; classId: string; username: string; mood: string;
   moodScore: number; note: string; goal: string; wantsSupport: boolean;
-  safetyLevel: SafetyLevel; supportEvidence: string | null;
+  safetyLevel: SafetyLevel; supportEvidence: string | null; synthetic: boolean;
 }
 
 function mapMood(row: MoodRow): PublicMoodEntry {
@@ -33,18 +35,18 @@ export async function createMoodEntry(input: NewMoodEntry): Promise<PublicMoodEn
   const createdAt = new Date().toISOString();
   const statements = [database.prepare(`INSERT INTO mood_entries (
     id,participant_hash,participant_code,user_id,class_id,mood,mood_score,note,goal,
-    wants_support,safety_level,support_evidence,created_at
-  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+    wants_support,safety_level,support_evidence,synthetic,created_at
+  ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
     id, `user:${input.userId}`, input.username, input.userId, input.classId,
     input.mood, input.moodScore, input.note, input.goal, input.wantsSupport ? 1 : 0,
-    input.safetyLevel, input.supportEvidence, createdAt,
+    input.safetyLevel, input.supportEvidence, input.synthetic ? 1 : 0, createdAt,
   )];
   if (input.safetyLevel === "urgent") {
     statements.push(database.prepare(`INSERT INTO support_events (
       id,user_id,class_id,source_type,source_id,safety_level,evidence_code,status,
-      assigned_teacher_user_id,acknowledged_at,resolved_at,created_at
-    ) VALUES (?,?,?,'mood',?,'urgent','local_crisis_rule','new',NULL,NULL,NULL,?)`)
-      .bind(crypto.randomUUID(), input.userId, input.classId, id, createdAt));
+      assigned_teacher_user_id,acknowledged_at,resolved_at,synthetic,created_at
+    ) VALUES (?,?,?,'mood',?,'urgent','local_crisis_rule','new',NULL,NULL,NULL,?,?)`)
+      .bind(crypto.randomUUID(), input.userId, input.classId, id, input.synthetic ? 1 : 0, createdAt));
   }
   await database.batch(statements);
   return mapMood({
@@ -58,17 +60,18 @@ export async function listMoodEntries(userId: string, limit: number): Promise<Pu
   const database = await getSystemDatabase();
   const result = await database.prepare(`SELECT id,mood,mood_score,note,goal,
     wants_support,safety_level,created_at FROM mood_entries
-    WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?`)
-    .bind(userId, limit).all<MoodRow>();
+    WHERE user_id=? AND (?=0 OR synthetic=1) ORDER BY created_at DESC,id DESC LIMIT ?`)
+    .bind(userId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0, limit).all<MoodRow>();
   return result.results.map(mapMood);
 }
 
 export async function deleteMoodEntries(userId: string, id?: string): Promise<number> {
   const database = await getSystemDatabase();
   const result = id
-    ? await database.prepare("DELETE FROM mood_entries WHERE user_id=? AND id=?")
-        .bind(userId, id).run()
-    : await database.prepare("DELETE FROM mood_entries WHERE user_id=?").bind(userId).run();
+    ? await database.prepare("DELETE FROM mood_entries WHERE user_id=? AND id=? AND (?=0 OR synthetic=1)")
+        .bind(userId, id, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).run()
+    : await database.prepare("DELETE FROM mood_entries WHERE user_id=? AND (?=0 OR synthetic=1)")
+        .bind(userId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).run();
   return Number(result.meta.changes ?? 0);
 }
 
@@ -88,16 +91,17 @@ export async function getTeacherSummary(
   const database = await getSystemDatabase();
   if (classId) {
     const owned = await database.prepare(
-      "SELECT id FROM school_classes WHERE id=? AND teacher_user_id=?",
-    ).bind(classId, teacherId).first();
+      "SELECT id FROM school_classes WHERE id=? AND teacher_user_id=? AND (?=0 OR synthetic=1)",
+    ).bind(classId, teacherId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).first();
     if (!owned) throw new ApiError(404, "没有找到这个班级。");
   }
   const generatedAt = new Date();
   const since = new Date(generatedAt.getTime() - days * 86_400_000).toISOString();
   const filter = `m.created_at>=? AND c.teacher_user_id=? AND m.user_id IS NOT NULL
+    AND (?=0 OR (m.synthetic=1 AND c.synthetic=1))
     AND (? IS NULL OR m.class_id=?)`;
   const bind = (statement: string) => database.prepare(statement)
-    .bind(since, teacherId, classId, classId);
+    .bind(since, teacherId, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0, classId, classId);
   const results = await database.batch([
     bind(`SELECT COUNT(*) entries,COUNT(DISTINCT m.user_id) participants,
       ROUND(AVG(NULLIF(m.mood_score,0)),2) average_mood_score,

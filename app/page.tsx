@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import StudentCompanion from "./StudentCompanion";
 import { redirect } from "next/navigation";
 import { getRuntimeEnv } from "@/db";
-import { isAdultEvaluationOnly } from "@/lib/public-demo";
+import { schoolSurfacesEnabled } from "@/lib/public-demo";
 
 export const metadata: Metadata = {
   title: "今天的心情｜心伴 AI-Pet",
-  description: "面向中小学生的轻量心情记录与真人支持研究原型。",
+  description: "18+ 成人扮演虚构学生，体验合成心情记录、语音与 Qwen 对话的演示沙盒。",
 };
 
 export default function Home() {
-  if (isAdultEvaluationOnly(getRuntimeEnv())) redirect("/evaluate");
+  if (!schoolSurfacesEnabled(getRuntimeEnv())) redirect("/evaluate");
   return <StudentCompanion />;
 }

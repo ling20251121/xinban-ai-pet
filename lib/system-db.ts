@@ -1,10 +1,17 @@
-import { getSystemDatabaseBinding } from "@/db";
+import { getRuntimeEnv, getSystemDatabaseBinding } from "@/db";
 import type { SystemDatabase } from "@/lib/database-types";
+import { assertSandboxDatabaseIsSynthetic } from "@/lib/public-demo";
 
 const TABLE_SQL = [
+  `CREATE TABLE IF NOT EXISTS sandbox_state (
+    id TEXT PRIMARY KEY CHECK (id='synthetic-school'),
+    claim_token TEXT NOT NULL,
+    initialized_at TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS school_classes (
     id TEXT PRIMARY KEY, teacher_user_id TEXT NOT NULL, name TEXT NOT NULL,
     safety_contact_name TEXT NOT NULL, safety_contact_phone TEXT NOT NULL,
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
     active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`,
@@ -20,6 +27,7 @@ const TABLE_SQL = [
     student_consented_at TEXT, student_consent_version TEXT,
     student_consent_withdrawn_at TEXT, created_by_user_id TEXT,
     failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT,
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     CHECK ((role='teacher' AND class_id IS NULL AND age_band IS NULL) OR
       (role='student' AND class_id IS NOT NULL AND age_band IN ('under14','14plus')))
@@ -40,6 +48,7 @@ const TABLE_SQL = [
     wants_support INTEGER NOT NULL DEFAULT 0 CHECK (wants_support IN (0, 1)),
     safety_level TEXT NOT NULL DEFAULT 'normal' CHECK (safety_level IN ('normal','urgent')),
     support_evidence TEXT,
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   )`,
   `CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -52,12 +61,14 @@ const TABLE_SQL = [
     ended_reason TEXT CHECK (ended_reason IS NULL OR ended_reason IN
       ('expired','turn_limit','urgent','student_deleted')),
     ended_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    , synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1))
   )`,
   `CREATE TABLE IF NOT EXISTS chat_messages (
     id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK (role IN ('user','assistant','local_safety')),
     content TEXT NOT NULL,
     safety_level TEXT NOT NULL DEFAULT 'normal' CHECK (safety_level IN ('normal','urgent')),
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
     created_at TEXT NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS support_events (
@@ -67,6 +78,7 @@ const TABLE_SQL = [
     evidence_code TEXT NOT NULL CHECK (evidence_code='local_crisis_rule'),
     status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','acknowledged','resolved')),
     assigned_teacher_user_id TEXT, acknowledged_at TEXT, resolved_at TEXT,
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
     created_at TEXT NOT NULL
   )`,
 ] as const;
@@ -112,12 +124,43 @@ async function initializeD1(database: SystemDatabase): Promise<void> {
   }
   if (alterations.length > 0) await database.batch(alterations);
 
+  const syntheticColumns = [
+    ["school_classes", "synthetic"],
+    ["app_users", "synthetic"],
+    ["mood_entries", "synthetic"],
+    ["chat_conversations", "synthetic"],
+    ["chat_messages", "synthetic"],
+    ["support_events", "synthetic"],
+  ] as const;
+  const syntheticAlterations: ReturnType<SystemDatabase["prepare"]>[] = [];
+  for (const [table, column] of syntheticColumns) {
+    const tableColumns = await database.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+    if (!tableColumns.results.some((item) => item.name === column)) {
+      syntheticAlterations.push(
+        database.prepare(`ALTER TABLE ${table} ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0`),
+      );
+    }
+  }
+  if (syntheticAlterations.length > 0) await database.batch(syntheticAlterations);
+
+  // A fixed sentinel makes sandbox initialization a database-level atomic
+  // claim. Backfill it for an older database so an upgrade can never create a
+  // second set of accounts; an operator can still clear it with sandbox reset.
+  await database.prepare(`INSERT INTO sandbox_state (id,claim_token,initialized_at)
+    SELECT 'synthetic-school','migrated-existing-school-data',?
+    WHERE EXISTS (SELECT 1 FROM app_users)
+      AND NOT EXISTS (SELECT 1 FROM sandbox_state WHERE id='synthetic-school')`)
+    .bind(new Date().toISOString()).run();
+
   await database.batch(INDEX_SQL.map((statement) => database.prepare(statement)));
 }
 
 export async function getSystemDatabase(): Promise<SystemDatabase> {
   const database = getSystemDatabaseBinding();
-  if (database.dialect === "postgres") return database;
+  if (database.dialect === "postgres") {
+    await assertSandboxDatabaseIsSynthetic(database, getRuntimeEnv());
+    return database;
+  }
   let schemaReady = readyByDatabase.get(database as object);
   if (!schemaReady) {
     schemaReady = initializeD1(database);
@@ -125,6 +168,7 @@ export async function getSystemDatabase(): Promise<SystemDatabase> {
   }
   try {
     await schemaReady;
+    await assertSandboxDatabaseIsSynthetic(database, getRuntimeEnv());
   } catch (error) {
     readyByDatabase.delete(database as object);
     throw error;
