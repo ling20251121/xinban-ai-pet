@@ -75,7 +75,7 @@
     {
       "version": "v5.0.0",
       "type": "controlled-school-account-continuous-care-system",
-      "commit": null,
+      "commit": "fafaed4ef1b1b27d9f2ea2b8684aa0af4d9bac8a",
       "fixedPath": "./v5.0.0/",
       "authentication": "school-issued-username-password",
       "initialTeacherSetup": "one-time-server-controlled-bootstrap",
