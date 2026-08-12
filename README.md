@@ -17,9 +17,10 @@ AI 只负责倾听、整理和提供小步骤；它不是心理测评、诊断�
 - 学生匿名编号、每日心情、可选文字和小目标
 - “仅保存”与“保存并请小伴回应”分开授权
 - 学生查看、导出和删除自己的记录
-- 通义千问、DeepSeek、豆包（火山方舟）、Kimi 四种服务端文本适配
+- 通义千问北京地域的可复现文本快照与输入脱敏、输出安全校验
 - Qwen3-ASR Flash 服务端语音转写（30 秒 / 2.5 MB，不保存音频）
-- 模型未配置或故障时的安全示例回应
+- 用户主动触发的固定系统音色朗读（不做声音复刻、不保存生成音频）
+- 模型未配置时失败关闭并返回 503，不用演示文本冒充真实模型回复
 - 自伤/即时危险关键词先经本地规则处理，不发送给外部模型
 - D1 持久化与教师密钥保护
 - 教师端班级汇总、心情趋势、支持队列与人工核对流程
@@ -34,7 +35,7 @@ GitHub 公开源代码
         ↓ 部署
 受保护的全栈服务 + D1 数据库
         ↓ 服务端调用
-DeepSeek / 豆包 / Kimi
+阿里云百炼北京地域 Qwen
 ```
 
 任何 API Key 都不能写进前端代码、`localStorage`、公开仓库或 `VITE_*` / `NEXT_PUBLIC_*` 变量。本项目使用服务端环境变量，并通过 `.gitignore` 排除真实配置。
@@ -48,11 +49,13 @@ pnpm install
 pnpm run dev
 ```
 
-复制 `.env.example` 为 `.env.local` 后填写配置。未配置模型时，学生端仍可使用内置的安全示例回应。
+复制 `.env.example` 为 `.env.local` 后填写配置。未配置密钥、地域或精确快照不匹配时，模型接口返回安全的 503；心情记录本身仍可独立使用。
 
 ## 模型配置
 
-只启用一个经过学校审批并写入隐私告知的供应商：
+截至 2026-08-12，本项目独立比较了阿里百炼 Qwen、火山豆包、腾讯混元、百度文心、DeepSeek、Kimi、智谱 GLM 与 MiniMax。指标包括未成年人数据边界、境内地域、短中文回应、ASR/TTS、可复现快照、成本和限流。唯一主选是百炼北京地域 Qwen，备选是火山方舟豆包：Qwen 是本次比较中同时具有明确中国内地地域说明、文本/ASR/TTS 精确快照、统一服务端密钥与成熟中文短语音能力的方案；豆包的大陆语音产品和成本有竞争力，但文本、ASR、TTS 使用不同接口、鉴权或资源 ID，公开地域边界说明也不如百炼集中，因此不在本版本中混接。
+
+本版本只启用经过学校审批并写入隐私告知的 Qwen 路径：
 
 ```env
 AI_PROVIDER=qwen
@@ -60,31 +63,21 @@ QWEN_API_KEY=你的服务端密钥
 QWEN_BASE_URL=https://你的业务空间ID.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
 QWEN_MODEL=qwen3.7-plus-2026-05-26
 QWEN_ASR_MODEL=qwen3-asr-flash-2026-02-10
-
-# 或 AI_PROVIDER=deepseek
-DEEPSEEK_API_KEY=你的服务端密钥
-DEEPSEEK_MODEL=deepseek-v4-flash
-
-# 或 AI_PROVIDER=doubao
-DOUBAO_API_KEY=你的服务端密钥
-DOUBAO_MODEL=你的模型 ID 或 Endpoint ID
-
-# 或 AI_PROVIDER=kimi
-KIMI_API_KEY=你的服务端密钥
-KIMI_MODEL=kimi-k3
+QWEN_TTS_MODEL=qwen3-tts-instruct-flash-2026-01-26
 ```
 
 模型名称会变化，上线前请以厂商官方文档为准：
 
-- [阿里云 Model Studio](https://help.aliyun.com/zh/model-studio/what-is-model-studio)
+- [百炼地域与部署范围](https://help.aliyun.com/zh/model-studio/regions/)
+- [Qwen3.7 Plus](https://help.aliyun.com/zh/model-studio/qwen3-7-plus)
 - [Qwen3-ASR API](https://help.aliyun.com/zh/model-studio/qwen-asr-api-reference)
-- [DeepSeek API](https://api-docs.deepseek.com/)
-- [火山方舟 Chat Completions](https://api.volcengine.com/api-docs/view?action=ChatCompletions&serviceCode=ark&version=2024-01-01)
-- [Kimi API](https://platform.kimi.com/docs/overview)
+- [Qwen3-TTS Instruct Flash](https://help.aliyun.com/zh/model-studio/qwen3-tts-instruct-flash)
+- [百炼模型价格](https://help.aliyun.com/zh/model-studio/model-pricing)
+- [火山方舟（备选）](https://www.volcengine.com/product/ark)
 
 Qwen 的默认文本和语音模型使用北京快照名称，便于研究复现。正式环境建议把
 `QWEN_BASE_URL` 换成北京业务空间专属域名；代码只允许 HTTPS 的阿里云北京
-Model Studio 域名，配置成其他主机时会安全降级，不会转发学生内容。
+Model Studio 域名，配置成其他主机、浮动别名或不同快照时会失败关闭，不会转发学生内容。匿名编号从不发送给模型；文本在出站前会移除常见手机号、证件号、邮箱、网址和带标签的姓名/学校/地址字段。
 
 ## 语音转写接口
 
@@ -106,6 +99,23 @@ MP4/M4A 不在当前 Qwen3-ASR Flash 官方格式清单中，因此界面会回�
 （按客户端地址的加盐散列）、并发上限和短时重复音频阻断，但它们不会跨 Worker
 实例持久化。正式公开试点必须再配置 Cloudflare 平台级持久限流、反自动化、全局
 并发/费用预算和告警；学校共享出口 IP 还需要按匿名会话细分，不能只按 IP 限制。
+
+## 主动语音朗读接口
+
+`POST /api/voice/synthesize` 只接受用户明确点击朗读后的请求：
+
+```json
+{ "text": "已经通过安全校验的简短 AI 回复", "userInitiated": true }
+```
+
+成功时直接返回 `audio/wav`。服务端固定使用百炼系统音色 `Cherry` 与
+`qwen3-tts-instruct-flash-2026-01-26`，不接受音色、参考音频或声音复刻参数；
+输入先经过本地危机与输出规则复核，生成音频只在请求内存中转发，不写入 D1、R2
+或应用日志。TTS 与 ASR 共用原型级限流和短时防重放；正式试点仍需平台级预算与鉴权。
+
+注意：模型选在北京地域并不自动保证端到端都在中国内地。当前全栈运行时是
+Cloudflare Worker，真实学生试点前必须另行评估运行节点、跨境传输、供应商协议、
+监护人单独同意和学校审批；未完成这些步骤时只能使用虚构测试数据。
 
 ## 数据与教师端配置
 

@@ -7,7 +7,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 type MoodOption = {
   id: string;
   label: string;
-  emoji: string;
+  cue: string;
   score: number;
   tone: string;
 };
@@ -26,14 +26,15 @@ type MoodEntry = {
 type CompanionState = "idle" | "mood-selected" | "saving" | "responding" | "done" | "urgent";
 type RecordingState = "idle" | "notice" | "requesting" | "recording" | "transcribing" | "review" | "error";
 type SpeechState = "idle" | "speaking" | "paused";
+type CloudSpeechState = "idle" | "loading" | "playing" | "paused" | "error";
 
 const moodOptions: MoodOption[] = [
-  { id: "happy", label: "开心", emoji: "☀️", score: 5, tone: "sun" },
-  { id: "calm", label: "平静", emoji: "🍃", score: 4, tone: "leaf" },
-  { id: "tense", label: "紧张", emoji: "🌤️", score: 3, tone: "sky" },
-  { id: "sad", label: "难过", emoji: "🌧️", score: 2, tone: "rain" },
-  { id: "upset", label: "烦躁", emoji: "🌋", score: 1, tone: "coral" },
-  { id: "unclear", label: "说不清", emoji: "🌫️", score: 0, tone: "mist" },
+  { id: "happy", label: "开心", cue: "明亮", score: 5, tone: "sun" },
+  { id: "calm", label: "平静", cue: "安稳", score: 4, tone: "leaf" },
+  { id: "tense", label: "紧张", cue: "绷紧", score: 3, tone: "sky" },
+  { id: "sad", label: "难过", cue: "低落", score: 2, tone: "rain" },
+  { id: "upset", label: "烦躁", cue: "发热", score: 1, tone: "coral" },
+  { id: "unclear", label: "说不清", cue: "模糊", score: 0, tone: "mist" },
 ];
 
 const quickPrompts = ["今天有件小事让我开心", "学习上有点卡住", "和同学相处有点难", "我想先安静一下"];
@@ -104,6 +105,8 @@ export default function StudentCompanion() {
   const [voiceSupported, setVoiceSupported] = useState<boolean | null>(null);
   const [speechState, setSpeechState] = useState<SpeechState>("idle");
   const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  const [cloudSpeechState, setCloudSpeechState] = useState<CloudSpeechState>("idle");
+  const [cloudSpeechMessage, setCloudSpeechMessage] = useState("");
   const replyRef = useRef<HTMLElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -114,6 +117,10 @@ export default function StudentCompanion() {
   const voiceRequestRef = useRef(0);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
   const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
+  const cloudAudioUrlRef = useRef<string | null>(null);
+  const cloudSpeechAbortRef = useRef<AbortController | null>(null);
+  const cloudSpeechRequestRef = useRef(0);
 
   const validCode = /^[A-Za-z0-9_-]{4,20}$/.test(participantCode.trim());
   const remaining = 600 - note.length;
@@ -142,6 +149,43 @@ export default function StudentCompanion() {
     return () => window.cancelAnimationFrame(frame);
   }, [reply, urgent]);
 
+  const stopCloudSpeech = useCallback((nextMessage = "") => {
+    cloudSpeechRequestRef.current += 1;
+    cloudSpeechAbortRef.current?.abort();
+    cloudSpeechAbortRef.current = null;
+
+    const audio = cloudAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      cloudAudioRef.current = null;
+    }
+    if (cloudAudioUrlRef.current) {
+      URL.revokeObjectURL(cloudAudioUrlRef.current);
+      cloudAudioUrlRef.current = null;
+    }
+    setCloudSpeechState("idle");
+    setCloudSpeechMessage(nextMessage);
+  }, []);
+
+  const clearCloudSpeechResources = useCallback(() => {
+    cloudSpeechRequestRef.current += 1;
+    cloudSpeechAbortRef.current?.abort();
+    cloudSpeechAbortRef.current = null;
+    const audio = cloudAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      cloudAudioRef.current = null;
+    }
+    if (cloudAudioUrlRef.current) {
+      URL.revokeObjectURL(cloudAudioUrlRef.current);
+      cloudAudioUrlRef.current = null;
+    }
+  }, []);
+
   useEffect(() => () => {
     voiceRequestRef.current += 1;
     stopReasonRef.current = "cancel";
@@ -151,6 +195,11 @@ export default function StudentCompanion() {
     if (mediaRecorderRef.current?.state !== "inactive") mediaRecorderRef.current?.stop();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     window.speechSynthesis?.cancel();
+    cloudSpeechRequestRef.current += 1;
+    cloudSpeechAbortRef.current?.abort();
+    cloudAudioRef.current?.pause();
+    cloudAudioRef.current?.removeAttribute("src");
+    if (cloudAudioUrlRef.current) URL.revokeObjectURL(cloudAudioUrlRef.current);
   }, []);
 
   const loadHistory = useCallback(async (code = participantCode.trim()) => {
@@ -180,6 +229,9 @@ export default function StudentCompanion() {
     event.preventDefault();
     const withAi = wantsAi;
     let recordSaved = false;
+    clearCloudSpeechResources();
+    setCloudSpeechState("idle");
+    setCloudSpeechMessage("");
     setError("");
     setNotice("");
     setReply("");
@@ -339,6 +391,10 @@ export default function StudentCompanion() {
       setNote((current) => [current.trim(), transcript].filter(Boolean).join("\n").slice(0, 600));
       setRecordingState("review");
       if (data.urgent) {
+        clearCloudSpeechResources();
+        setCloudSpeechState("idle");
+        setCloudSpeechMessage("");
+        stopSpeech();
         setUrgent(true);
         setProvider("");
         setReply(data.message || "请现在联系身边可信任的成年人。若你或别人正面临立即危险，请拨打 110 或 120。");
@@ -459,6 +515,88 @@ export default function StudentCompanion() {
     setVoiceMessage("已取消，音频没有保存。");
   }
 
+  async function toggleCloudSpeech() {
+    if (!reply || urgent) return;
+
+    if (cloudSpeechState === "playing") {
+      cloudAudioRef.current?.pause();
+      setCloudSpeechState("paused");
+      setCloudSpeechMessage("Qwen 云端朗读已暂停。");
+      return;
+    }
+    if (cloudSpeechState === "paused" && cloudAudioRef.current) {
+      try {
+        await cloudAudioRef.current.play();
+        setCloudSpeechState("playing");
+        setCloudSpeechMessage("正在使用 Qwen 语音朗读。音频仅用于本次播放。");
+      } catch {
+        stopCloudSpeech("暂时无法继续播放。可以使用设备朗读或直接阅读文字。");
+        setCloudSpeechState("error");
+      }
+      return;
+    }
+
+    stopCloudSpeech();
+    stopSpeech();
+    const requestId = cloudSpeechRequestRef.current;
+    const controller = new AbortController();
+    cloudSpeechAbortRef.current = controller;
+    setCloudSpeechState("loading");
+    setCloudSpeechMessage("正在准备 Qwen 云端语音…");
+
+    try {
+      const response = await fetch("/api/voice/synthesize", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: reply, userInitiated: true }),
+        signal: controller.signal,
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+
+      if (!response.ok) {
+        let serverMessage = "";
+        try {
+          const data = (await response.json()) as { error?: string };
+          serverMessage = data.error || "";
+        } catch {
+          serverMessage = "";
+        }
+        if (response.status === 503) {
+          throw new Error("云端朗读未配置，可使用设备朗读/直接阅读");
+        }
+        throw new Error(serverMessage || "云端朗读暂时不可用，可使用设备朗读或直接阅读文字。");
+      }
+
+      const audioBlob = await response.blob();
+      if (requestId !== cloudSpeechRequestRef.current || controller.signal.aborted) return;
+      if (!audioBlob.size) throw new Error("云端朗读没有返回音频，可使用设备朗读或直接阅读文字。");
+
+      const audioUrl = URL.createObjectURL(audioBlob);
+      cloudAudioUrlRef.current = audioUrl;
+      const audio = new Audio(audioUrl);
+      cloudAudioRef.current = audio;
+      audio.onended = () => stopCloudSpeech("Qwen 云端朗读已完成。");
+      audio.onerror = () => {
+        stopCloudSpeech("云端音频无法播放，可使用设备朗读或直接阅读文字。");
+        setCloudSpeechState("error");
+      };
+      await audio.play();
+      if (requestId !== cloudSpeechRequestRef.current) return;
+      setCloudSpeechState("playing");
+      setCloudSpeechMessage("正在使用 Qwen 语音朗读。音频仅用于本次播放。");
+    } catch (cloudSpeechError) {
+      if (cloudSpeechError instanceof DOMException && cloudSpeechError.name === "AbortError") return;
+      const message = cloudSpeechError instanceof Error
+        ? cloudSpeechError.message
+        : "云端朗读暂时不可用，可使用设备朗读或直接阅读文字。";
+      stopCloudSpeech(message);
+      setCloudSpeechState("error");
+    } finally {
+      if (requestId === cloudSpeechRequestRef.current) cloudSpeechAbortRef.current = null;
+    }
+  }
+
   function toggleSpeech() {
     if (!speechSupported || !reply || urgent) return;
     if (speechState === "speaking") {
@@ -473,6 +611,7 @@ export default function StudentCompanion() {
     }
 
     window.speechSynthesis.cancel();
+    stopCloudSpeech();
     const utterance = new SpeechSynthesisUtterance(reply);
     const chineseVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("zh"));
     if (chineseVoice) utterance.voice = chineseVoice;
@@ -493,6 +632,7 @@ export default function StudentCompanion() {
   }
 
   function finishSession() {
+    stopCloudSpeech();
     stopSpeech();
     setReply("");
     setProvider("");
@@ -560,16 +700,31 @@ export default function StudentCompanion() {
   };
   const voiceBusy = recordingState === "requesting" || recordingState === "recording" || recordingState === "transcribing";
   const recordingTime = `0:${String(recordingSeconds).padStart(2, "0")} / 0:30`;
+  const now = new Date();
+  const todayLabel = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(now);
+  const shanghaiHour = Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Shanghai",
+    hour: "2-digit",
+    hour12: false,
+  }).format(now));
+  const greeting = shanghaiHour < 11 ? "上午好" : shanghaiHour < 14 ? "中午好" : shanghaiHour < 18 ? "下午好" : "晚上好";
 
   return (
     <div className="site-shell" data-state={companionState} data-mood={selectedMood?.tone || "none"}>
       <a className="skip-link" href="#today">跳到今天的心情记录</a>
       <header className="topbar">
         <Link className="brand" href="/" aria-label="心伴 AI-Pet 首页">
-          <span className="brand-mark" aria-hidden="true">心</span>
+          <span className="brand-image" aria-hidden="true">
+            <Image src="/dog.svg" alt="" width={42} height={42} priority />
+          </span>
           <span>
-            <strong>心伴 AI-Pet</strong>
-            <small>Human + AI, with care</small>
+            <strong>心伴</strong>
+            <small>AI-PET · v4.0</small>
           </span>
         </Link>
         <nav className="topnav" aria-label="主导航">
@@ -583,16 +738,16 @@ export default function StudentCompanion() {
       <main>
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero-copy">
-            <div className="eyebrow"><span aria-hidden="true">●</span> 每日 30 秒 · 自主记录</div>
-            <h1 id="hero-title">今天的心情，<br /><em>值得被轻轻接住。</em></h1>
-            <p>你可以只选一个心情、写几句，或者今天跳过。这里不是心理测评，也不会给你贴标签。</p>
+            <div className="eyebrow">{todayLabel} · 今天也照顾自己</div>
+            <h1 id="hero-title">{greeting}，同学</h1>
+            <p>今天的开心、困惑和小进步，都可以放在这里。只选一个心情，也算认真照顾了自己。</p>
           </div>
           <div className="identity-card" aria-labelledby="identity-title">
             <div>
-              <span className="step-dot">01</span>
+              <span className="step-dot" aria-hidden="true">01</span>
               <div>
-                <strong id="identity-title">先输入匿名编号</strong>
-                <small>不使用姓名、学号或手机号</small>
+                <strong id="identity-title">我的匿名空间</strong>
+                <small>使用学校发放的编号，不写姓名</small>
               </div>
             </div>
             <label className="code-field" htmlFor="participant-code">
@@ -611,35 +766,43 @@ export default function StudentCompanion() {
                 {loadingHistory ? "读取中…" : "查看记录"}
               </button>
             </label>
-            <p id="participant-code-help"><span aria-hidden="true">🔒</span> 编号由学校单独发放，真实姓名不会发送给模型。</p>
+            <p id="participant-code-help"><strong>隐私说明：</strong>编号由学校单独发放，真实姓名不会发送给模型。</p>
           </div>
         </section>
 
         <section id="today" className="workspace" aria-labelledby="today-title">
           <aside className="companion-card">
-            <div className="pet-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
-            <Image key={selectedMood?.id || "idle"} src="/dog.svg" alt="AI 心情伙伴小伴" className="pet-image" width={190} height={190} priority />
-            <div className="online-pill" role="status" aria-live="polite"><span></span> {companionStatus[companionState]}</div>
-            <h2>我是 AI 小伴</h2>
-            <p>可以帮你把今天理清一点，但我不是真人，也可能理解错。</p>
-            <div className="pet-boundary">
-              <strong>我会做的</strong>
-              <span>先听你说 · 把困难拆小 · 提醒你找可信任的人</span>
+            <div className="companion-head">
+              <div className="online-pill" role="status" aria-live="polite"><span></span> {companionStatus[companionState]}</div>
+              <span className="companion-mode">需你主动开启</span>
             </div>
-            <div className="reality-note">AI 生成 · 不是诊断或紧急服务</div>
+            <div className="pet-stage">
+              <Image key={selectedMood?.id || "idle"} src="/dog.svg" alt="AI 心情伙伴小伴" className="pet-image" width={260} height={260} priority />
+            </div>
+            <div className="pet-speech">
+              <h2>我是 AI 小伴</h2>
+              <p>{selectedMood ? moodFeedback[selectedMood.id] : "慢慢来。你可以先选一个最接近的心情，再决定要不要写几句。"}</p>
+              <small>我不是真人，也可能理解错；你随时可以跳过或找现实中的人。</small>
+            </div>
+            <div className="pet-boundary">
+              <strong>这段陪伴会在今天收束</strong>
+              <span>记录心情 · 可选一次 AI 建议 · 需要时找真人</span>
+            </div>
+            <div className="reality-note">不是诊断、测评或紧急服务</div>
           </aside>
 
           <form className="checkin-card" onSubmit={(event) => void submitEntry(event)} aria-busy={Boolean(submitting)}>
             <div className="card-heading">
               <div>
-                <span className="step-label">STEP 02</span>
-                <h2 id="today-title">此刻，哪个最像你的心情？</h2>
+                <span className="step-label">TODAY&apos;S CHECK-IN</span>
+                <h2 id="today-title">把此刻轻轻记下来</h2>
+                <p>先选心情，再决定是否补充文字。没有标准答案。</p>
               </div>
-              <span className="optional-badge">没有对错</span>
+              <span className="optional-badge">约 30 秒</span>
             </div>
 
             <div className="mood-grid" role="radiogroup" aria-label="选择今天的心情" aria-describedby={selectedMood ? "mood-feedback" : undefined}>
-              {moodOptions.map((mood) => (
+              {moodOptions.map((mood, index) => (
                 <label
                   key={mood.id}
                   className={`mood-option mood-${mood.tone}${selectedMood?.id === mood.id ? " selected" : ""}`}
@@ -652,8 +815,9 @@ export default function StudentCompanion() {
                     checked={selectedMood?.id === mood.id}
                     onChange={() => chooseMood(mood)}
                   />
-                  <span aria-hidden="true">{mood.emoji}</span>
+                  <span className="mood-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
                   <strong>{mood.label}</strong>
+                  <small>{mood.cue}</small>
                 </label>
               ))}
             </div>
@@ -685,7 +849,7 @@ export default function StudentCompanion() {
                     setRecordingState("notice");
                   }}
                 >
-                  {voiceSupported === null ? "正在检查语音…" : voiceSupported ? "语音输入" : "设备不支持录音"}
+                  {voiceSupported === null ? "正在检查语音…" : voiceSupported ? "使用语音输入" : "设备不支持录音"}
                 </button>
               </div>
               <textarea
@@ -795,7 +959,6 @@ export default function StudentCompanion() {
             <div className="form-actions">
               <button className="primary-action save-action" type="submit" disabled={Boolean(submitting) || voiceBusy}>
                 {submitting ? (companionState === "responding" ? "正在整理你写的内容…" : "正在安全保存…") : (wantsAi ? "保存记录并获取 AI 建议" : "保存今天的记录")}
-                <span aria-hidden="true">✓</span>
               </button>
             </div>
             <p className="consent-copy">记录框文字会随本次心情记录保存。{wantsAi ? "本次还会临时发送给学校配置的模型，AI 回复不保存。" : "目前不会发送给模型。"}</p>
@@ -809,16 +972,16 @@ export default function StudentCompanion() {
                 <div className="week-count"><strong>{weekSummary.days ? `${weekSummary.days} 天` : "暂无"}</strong><small>最近 7 条记录</small></div>
                 <div className={weekSummary.recent.length ? "week-moods" : "week-moods empty"} aria-hidden="true">
                   {weekSummary.recent.length ? weekSummary.recent.slice().reverse().map((entry) => (
-                    <span key={entry.id}>{moodOptions.find((mood) => mood.label === entry.mood)?.emoji || "○"}</span>
+                    <span key={entry.id}>{moodOptions.find((mood) => mood.label === entry.mood)?.label || "已记录"}</span>
                   )) : <span>尚无记录</span>}
                 </div>
               </div>
               <p>{entries.length ? `已读取 ${entries.length} 条记录。这里只帮助回看，不计算情绪分数。` : "输入匿名编号后，可以在这里回看自己的记录。"}</p>
-              <button type="button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>查看我的记录 <span aria-hidden="true">→</span></button>
+              <button type="button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>查看我的记录</button>
             </section>
 
             <section className="privacy-card">
-              <div className="privacy-icon" aria-hidden="true">◌</div>
+              <div className="privacy-icon" aria-hidden="true">选择</div>
               <div>
                 <strong>你有选择权</strong>
                 <p>可以跳过、导出、删除或停止参加，不影响成绩和获得学校支持。</p>
@@ -855,23 +1018,56 @@ export default function StudentCompanion() {
               {urgent && <small>本研究原型尚不能保证自动通知老师。请你现在主动联系身边可信任的成年人。</small>}
               {!urgent && (
                 <>
-                  <div className="speech-controls" aria-label="设备朗读控制">
-                    <button
-                      type="button"
-                      disabled={speechSupported !== true}
-                      aria-pressed={speechState !== "idle"}
-                      onClick={toggleSpeech}
+                  <div className="reply-audio-tools">
+                    <div className="cloud-speech-controls" aria-label="Qwen 云端语音朗读控制">
+                      <button
+                        type="button"
+                        className="cloud-speech-primary"
+                        disabled={cloudSpeechState === "loading"}
+                        aria-pressed={cloudSpeechState === "playing" || cloudSpeechState === "paused"}
+                        aria-describedby="cloud-speech-status"
+                        onClick={() => void toggleCloudSpeech()}
+                      >
+                        {cloudSpeechState === "loading" && "正在准备 Qwen 语音…"}
+                        {(cloudSpeechState === "idle" || cloudSpeechState === "error") && "使用 Qwen 语音朗读"}
+                        {cloudSpeechState === "playing" && "暂停 Qwen 朗读"}
+                        {cloudSpeechState === "paused" && "继续 Qwen 朗读"}
+                      </button>
+                      {(cloudSpeechState === "loading" || cloudSpeechState === "playing" || cloudSpeechState === "paused") && (
+                        <button type="button" onClick={() => stopCloudSpeech(cloudSpeechState === "loading" ? "已取消准备云端语音。" : "Qwen 云端朗读已停止。") }>
+                          {cloudSpeechState === "loading" ? "取消" : "停止"}
+                        </button>
+                      )}
+                    </div>
+                    <p
+                      id="cloud-speech-status"
+                      className={cloudSpeechState === "error" ? "cloud-speech-status error" : "cloud-speech-status"}
+                      role={cloudSpeechState === "error" ? "alert" : "status"}
+                      aria-live="polite"
                     >
-                      {speechSupported === false && "此设备不支持朗读"}
-                      {speechSupported === null && "正在检查朗读…"}
-                      {speechSupported && speechState === "idle" && "使用设备朗读"}
-                      {speechSupported && speechState === "speaking" && "暂停朗读"}
-                      {speechSupported && speechState === "paused" && "继续朗读"}
-                    </button>
-                    {speechState !== "idle" && <button type="button" onClick={stopSpeech}>停止</button>}
-                    <span className="sr-only" role="status" aria-live="polite">
-                      {speechState === "speaking" ? "正在使用设备朗读 AI 建议" : speechState === "paused" ? "设备朗读已暂停" : "设备朗读已停止"}
-                    </span>
+                      {cloudSpeechMessage || "点击后才会把这条 AI 建议发送到学校配置的 Qwen 语音服务；音频不保存。"}
+                    </p>
+                    <details className="device-speech-fallback">
+                      <summary>设备朗读备用</summary>
+                      <div className="speech-controls" aria-label="设备朗读控制">
+                        <button
+                          type="button"
+                          disabled={speechSupported !== true}
+                          aria-pressed={speechState !== "idle"}
+                          onClick={toggleSpeech}
+                        >
+                          {speechSupported === false && "此设备不支持朗读"}
+                          {speechSupported === null && "正在检查朗读…"}
+                          {speechSupported && speechState === "idle" && "使用设备朗读"}
+                          {speechSupported && speechState === "speaking" && "暂停设备朗读"}
+                          {speechSupported && speechState === "paused" && "继续设备朗读"}
+                        </button>
+                        {speechState !== "idle" && <button type="button" onClick={stopSpeech}>停止</button>}
+                        <span className="sr-only" role="status" aria-live="polite">
+                          {speechState === "speaking" ? "正在使用设备朗读 AI 建议" : speechState === "paused" ? "设备朗读已暂停" : "设备朗读已停止"}
+                        </span>
+                      </div>
+                    </details>
                   </div>
                   <div className="reply-closure">
                     <p><strong>今天先记到这里就好。</strong>你不必马上解决全部，需要时可以让现实中的人一起帮忙。</p>
@@ -903,7 +1099,7 @@ export default function StudentCompanion() {
               <div className="history-list">
                 {entries.map((entry) => (
                   <article key={entry.id}>
-                    <div className="history-mood">{moodOptions.find((mood) => mood.label === entry.mood)?.emoji || "○"}</div>
+                    <div className="history-mood">{moodOptions.find((mood) => mood.label === entry.mood)?.label || "已记录"}</div>
                     <div>
                       <div className="history-meta"><strong>{entry.mood}</strong><time>{formatDate(entry.createdAt)}</time></div>
                       {entry.note && <p>{entry.note}</p>}
@@ -934,7 +1130,7 @@ export default function StudentCompanion() {
       </main>
 
       <footer>
-        <div className="brand footer-brand"><span className="brand-mark" aria-hidden="true">心</span><span><strong>心伴 AI-Pet</strong><small>EITT 2026 研究原型</small></span></div>
+        <div className="brand footer-brand"><span className="brand-image" aria-hidden="true"><Image src="/dog.svg" alt="" width={42} height={42} /></span><span><strong>心伴 AI-Pet</strong><small>EITT 2026 研究原型</small></span></div>
         <p>学生自我记录 × AI 低压力回应 × 教师人工支持</p>
         <p className="footer-note">本原型不是医疗或心理诊断工具。正式试点需经学校审批、监护人同意与未成年人本人同意。</p>
       </footer>

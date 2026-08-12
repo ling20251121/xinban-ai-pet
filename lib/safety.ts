@@ -5,6 +5,9 @@ const CRISIS_PATTERNS: readonly RegExp[] = [
   /割腕|跳楼|吞(?:药|安眠药)|自残|伤害(?:我)?自己|杀(?:死|了)?自己/iu,
   /suicid(?:e|al)|kill\s+myself|end\s+my\s+life|don['’]?t\s+want\s+to\s+live|hurt\s+myself|self[-\s]?harm/iu,
   /有人(?:要|想)杀我|我现在不安全|马上要伤害我/iu,
+  /我(?:现在|马上|今晚)?(?:要|想|准备)(?:杀|捅|砍|勒|毒|伤害)(?:他|她|同学|老师|家人|别人)/iu,
+  /(?:他|她|他们|家里人|老师)(?:正在|经常|又在)(?:打|踢|掐|勒|猥亵|性侵|虐待)我/iu,
+  /kill\s+(?:him|her|them|someone)|hurt\s+(?:him|her|them|someone)|being\s+(?:abused|assaulted)/iu,
 ];
 
 export const CRISIS_REPLY =

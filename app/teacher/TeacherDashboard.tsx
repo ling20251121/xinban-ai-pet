@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   type CSSProperties,
   type FormEvent,
@@ -500,12 +501,12 @@ export default function TeacherDashboard() {
 
       <header className="teacher-topbar">
         <a className="teacher-brand" href="/teacher" aria-label="心伴 AI-Pet 教师支持台首页">
-          <span className="teacher-brand-mark" aria-hidden="true">
-            心
+          <span className="teacher-brand-image" aria-hidden="true">
+            <Image src="/dog.svg" alt="" width={42} height={42} priority />
           </span>
           <span>
-            <strong>心伴 AI-Pet</strong>
-            <small>教师支持台</small>
+            <strong>心伴</strong>
+            <small>AI-PET · 教师支持台</small>
           </span>
         </a>
         <nav className="teacher-topnav" aria-label="页面导航">
@@ -514,18 +515,35 @@ export default function TeacherDashboard() {
           <a href="#cccr-flow">核对流程</a>
         </nav>
         <span className="teacher-privacy-badge">
-          <span aria-hidden="true">●</span> 脱敏保护开启
+          <span aria-hidden="true">MINIMUM DATA</span> 脱敏保护开启
         </span>
       </header>
 
-      <main id="teacher-main" className="teacher-main">
+      <div className="teacher-workbench">
+        <aside className="teacher-sidebar" aria-label="教师工作台导航">
+          <div>
+            <p>工作台</p>
+            <nav>
+              <a className="is-active" href="#class-overview" aria-current="page">总览</a>
+              <a href="#support-queue">学生支持</a>
+              <a href="#cccr-flow">核对流程</a>
+            </nav>
+          </div>
+          <section aria-labelledby="teacher-sidebar-boundary">
+            <strong id="teacher-sidebar-boundary">信息边界</strong>
+            <p>只看匿名编号、聚合数据和结构化线索；不呈现姓名或普通聊天原文。</p>
+          </section>
+        </aside>
+
+        <div className="teacher-content-column">
+          <main id="teacher-main" className="teacher-main">
         <section className="teacher-hero" aria-labelledby="teacher-title">
           <div className="teacher-hero-copy">
-            <p className="teacher-eyebrow">先看见，再陪伴</p>
-            <h1 id="teacher-title">把需要支持的信号，温和地接住</h1>
+            <p className="teacher-eyebrow">学生支持工作台</p>
+            <h1 id="teacher-title">您好，老师</h1>
             <p>
-              这里呈现班级整体心情与学生主动发出的支持请求，帮助教师安排现实中的关心与核对。
-              数据只作支持线索，不用于诊断、排名或评价学生。
+              系统先汇总班级整体使用情况，再突出需要真人跟进的少量事项。
+              所有信息只作支持线索，不用于诊断、排名或评价学生。
             </p>
           </div>
 
@@ -570,7 +588,7 @@ export default function TeacherDashboard() {
 
             {mode === "sample" ? (
               <div className="teacher-sample-note">
-                <span aria-hidden="true">i</span>
+                <span aria-hidden="true">示例</span>
                 <p>
                   当前为虚构示例，不含真实学生记录。切换到“实时班级”后输入访问密钥。
                 </p>
@@ -623,7 +641,7 @@ export default function TeacherDashboard() {
               <div className="teacher-metrics">
                 <article className="teacher-metric-card">
                   <div className="teacher-metric-icon teacher-metric-icon--green" aria-hidden="true">
-                    ✓
+                    TODAY
                   </div>
                   <p>今日完成</p>
                   <strong>{data.todayCount}</strong>
@@ -631,7 +649,7 @@ export default function TeacherDashboard() {
                 </article>
                 <article className="teacher-metric-card">
                   <div className="teacher-metric-icon teacher-metric-icon--blue" aria-hidden="true">
-                    7
+                    7 DAYS
                   </div>
                   <p>7 天平均</p>
                   <strong>{sevenDayAverage.toFixed(1)}</strong>
@@ -639,7 +657,7 @@ export default function TeacherDashboard() {
                 </article>
                 <article className="teacher-metric-card">
                   <div className="teacher-metric-icon teacher-metric-icon--gold" aria-hidden="true">
-                    ↗
+                    SUPPORT
                   </div>
                   <p>支持请求</p>
                   <strong>{data.supportRequests}</strong>
@@ -647,12 +665,12 @@ export default function TeacherDashboard() {
                 </article>
                 <article className="teacher-metric-card teacher-metric-card--urgent">
                   <div className="teacher-metric-icon teacher-metric-icon--red" aria-hidden="true">
-                    !
+                    CHECK
                   </div>
                   <p>需立即人工确认</p>
                   <strong>{data.urgentCount}</strong>
                   <a href="#support-queue">
-                    前往核对<span aria-hidden="true"> →</span>
+                    前往核对
                   </a>
                 </article>
               </div>
@@ -813,7 +831,7 @@ export default function TeacherDashboard() {
                         className={`teacher-queue-card ${urgent ? "teacher-queue-card--urgent" : ""}`}
                       >
                         <div className="teacher-queue-priority" aria-hidden="true">
-                          <span>{urgent ? "!" : "·"}</span>
+                          <span>{urgent ? "立即" : "跟进"}</span>
                         </div>
                         <div className="teacher-queue-content">
                           <div className="teacher-queue-topline">
@@ -850,7 +868,7 @@ export default function TeacherDashboard() {
                           </dl>
                         </div>
                         <a className="teacher-check-link" href="#cccr-flow">
-                          查看核对步骤<span aria-hidden="true"> →</span>
+                          查看核对步骤
                         </a>
                       </article>
                     );
@@ -858,7 +876,7 @@ export default function TeacherDashboard() {
                 </div>
               ) : (
                 <div className="teacher-empty-state">
-                  <span aria-hidden="true">✓</span>
+                  <span aria-hidden="true">暂无</span>
                   <h3>当前筛选下没有待处理项目</h3>
                   <p>继续保持日常观察；有新的主动请求时会出现在这里。</p>
                 </div>
@@ -887,7 +905,7 @@ export default function TeacherDashboard() {
                 ))}
               </ol>
               <div className="teacher-safety-callout">
-                <span className="teacher-safety-mark" aria-hidden="true">!</span>
+                <span className="teacher-safety-mark" aria-hidden="true">注意</span>
                 <div>
                   <h3>立即项必须由真人确认闭环</h3>
                   <p>
@@ -900,7 +918,7 @@ export default function TeacherDashboard() {
         ) : (
           <section className="teacher-locked-state" aria-live="polite" aria-busy={isLoading}>
             <div className="teacher-lock-symbol" aria-hidden="true">
-              {isLoading ? "…" : "心"}
+              {isLoading ? "读取中" : "密钥"}
             </div>
             <h2>{isLoading ? "正在准备班级支持概览" : "输入密钥后查看实时汇总"}</h2>
             <p>
@@ -910,14 +928,16 @@ export default function TeacherDashboard() {
             </p>
           </section>
         )}
-      </main>
+          </main>
 
-      <footer className="teacher-footer">
-        <p>
-          <strong>心伴 AI-Pet</strong> 是支持工具，不是诊断、测评或学生评价系统。
-        </p>
-        <p>只收集和呈现完成支持所需的最少信息。</p>
-      </footer>
+          <footer className="teacher-footer">
+            <p>
+              <strong>心伴 AI-Pet</strong> 是支持工具，不是诊断、测评或学生评价系统。
+            </p>
+            <p>只收集和呈现完成支持所需的最少信息。</p>
+          </footer>
+        </div>
+      </div>
     </div>
   );
 }

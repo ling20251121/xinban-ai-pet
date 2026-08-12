@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v4.0.0 双端视觉工作台的静态界面、功能与安全边界说明">
+  <title>心伴 AI-Pet v4.0.0 · 双端视觉工作台</title>
+  <style>
+    :root{--ink:#292d42;--muted:#74798d;--purple:#6559ca;--purple-soft:#efedff;--green:#347c66;--green-soft:#eaf7f2;--red:#a94d47;--red-soft:#fff0ed;--gold:#9b6f2c;--gold-soft:#fff5e5;--line:#e0e1e9;--paper:#fff;--canvas:#f7f7fb;--shadow:0 22px 65px rgba(59,54,107,.09)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:var(--canvas);line-height:1.65}.skip{position:fixed;left:12px;top:8px;z-index:20;transform:translateY(-150%);padding:9px 13px;border-radius:10px;background:var(--ink);color:#fff}.skip:focus{transform:none}a{color:inherit}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:78px;padding:12px max(24px,calc((100vw - 1160px)/2));border-bottom:1px solid var(--line);background:rgba(255,255,255,.96)}.brand{text-decoration:none;font-weight:900;font-size:1.22rem}.brand small{margin-left:8px;color:#8b8e9d;font-size:.7rem;letter-spacing:.09em}.archive{display:inline-flex;min-height:44px;align-items:center;padding:8px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#615a80;font-size:.83rem;font-weight:800;text-decoration:none}.archive:focus-visible,.jump a:focus-visible,.button:focus-visible,details summary:focus-visible{outline:3px solid #8d82e4;outline-offset:3px}
+    main{width:min(1160px,calc(100% - 36px));margin:0 auto;padding:54px 0 70px}.hero{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:42px;align-items:center}.eyebrow{margin:0;color:#8c83c0;font-size:.75rem;font-weight:900;letter-spacing:.13em}.hero h1{margin:.45rem 0 .8rem;font-size:clamp(2.4rem,6vw,4.8rem);line-height:1.02;letter-spacing:-.05em}.lead{max-width:700px;margin:0;color:var(--muted);font-size:1.05rem}.boundary{padding:22px;border:1px solid #dad6ee;border-radius:22px;background:#fff;box-shadow:var(--shadow)}.boundary strong{display:block;color:var(--purple);font-size:.76rem;letter-spacing:.1em}.boundary h2{margin:.45rem 0 .55rem;font-size:1.35rem}.boundary p{margin:0;color:var(--muted);font-size:.9rem}.status{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:16px}.status span{padding:9px 10px;border-radius:10px;background:#f4f3f8;color:#6f7281;font-size:.72rem;font-weight:800;text-align:center}
+    .notice{margin:34px 0;padding:18px 20px;border:1px solid #ead5ad;border-radius:17px;background:var(--gold-soft);color:#70562e}.notice strong{color:#624716}.jump{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px}.jump a{display:inline-flex;min-height:44px;align-items:center;padding:8px 15px;border:1px solid #dcd9eb;border-radius:12px;background:#fff;color:#6158ad;font-size:.86rem;font-weight:850;text-decoration:none}
+    .surface{scroll-margin-top:100px;margin-top:22px;padding:26px;border:1px solid var(--line);border-radius:25px;background:#fff;box-shadow:0 15px 42px rgba(55,54,86,.055)}.surface-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:22px}.surface-head p{margin:0;color:#8e879f;font-size:.72rem;font-weight:900;letter-spacing:.1em}.surface-head h2{margin:.3rem 0 0;font-size:clamp(1.55rem,3vw,2.25rem);letter-spacing:-.035em}.static-tag{flex:none;padding:7px 10px;border-radius:999px;background:var(--purple-soft);color:#5d54ad;font-size:.7rem;font-weight:900}.student-preview{display:grid;grid-template-columns:minmax(250px,.75fr) minmax(0,1.25fr);gap:18px}.companion{display:flex;min-height:430px;flex-direction:column;padding:23px;border:1px solid #ded9f1;border-radius:23px;background:#f2efff}.companion .online{color:var(--green);font-size:.75rem;font-weight:900}.companion-copy{margin:auto 0;text-align:center}.companion-copy b{display:block;font-size:clamp(2rem,5vw,3.7rem);color:#5e55b9;letter-spacing:-.05em}.companion-copy p{max-width:290px;margin:10px auto 0;color:#6e6b80;font-size:.88rem}.limit{padding:14px;border:1px solid #ded9eb;border-radius:15px;background:rgba(255,255,255,.8);color:#716d80;font-size:.78rem}.limit strong{display:block;color:#4d5061}.checkin{padding:23px;border:1px solid #e3e2e9;border-radius:23px;background:#fff}.checkin h3{margin:0;font-size:1.3rem}.checkin>p{margin:.4rem 0 1.1rem;color:var(--muted);font-size:.85rem}.moods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.moods span{padding:12px;border:1px solid #e5e3ed;border-radius:12px;background:#fbfaff;color:#656979;font-size:.8rem;font-weight:800}.moods span:first-child{border-color:#8d82df;background:#f2efff;color:#574fac}.field-demo{margin-top:13px;padding:17px;border:1px solid #e3e1ea;border-radius:14px;background:#fcfbff;color:#9a98a6;font-size:.8rem}.choices{display:grid;gap:8px;margin-top:13px}.choice{padding:12px 14px;border:1px solid #e3e1ea;border-radius:13px;background:#fbfaff}.choice b{display:block;font-size:.82rem}.choice small{color:var(--muted)}.choice.ai{border-color:#d7e9e1;background:#f7fcfa}.button{display:flex;min-height:48px;align-items:center;justify-content:center;margin-top:14px;border-radius:13px;background:var(--purple);color:#fff;font-weight:900}.button[aria-disabled="true"]{cursor:default}.demo-caption{margin:13px 0 0;color:#8e91a0;font-size:.74rem;text-align:center}
+    .teacher-preview{display:grid;grid-template-columns:170px minmax(0,1fr);overflow:hidden;border:1px solid var(--line);border-radius:20px;background:#f6f7fa}.side{padding:20px 14px;border-right:1px solid var(--line);background:#fff}.side b{display:block;margin:0 9px 10px;color:#a0a3b0;font-size:.7rem}.side span{display:block;margin:5px 0;padding:10px;border-radius:9px;color:#74798a;font-size:.78rem;font-weight:750}.side span:first-of-type{background:#efedff;color:#5c54b5}.teacher-main{min-width:0;padding:22px}.teacher-main>p{margin:0;color:#8e87bd;font-size:.72rem;font-weight:900}.teacher-main h3{margin:.25rem 0 1rem;font-size:1.75rem}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.metric{padding:15px;border:1px solid var(--line);border-radius:13px;background:#fff}.metric span{display:block;color:#8b8f9d;font-size:.68rem}.metric strong{display:block;margin:8px 0 2px;font-size:1.8rem}.metric small{color:#979aa6;font-size:.66rem}.metric.urgent{border-color:#e4c1bd;background:#fff6f4}.metric.urgent strong{color:var(--red)}.queue{margin-top:12px;border:1px solid var(--line);border-radius:14px;background:#fff}.queue-head,.queue-row{display:grid;grid-template-columns:1fr .8fr .85fr 1.25fr;gap:10px;align-items:center;padding:11px 14px}.queue-head{border-bottom:1px solid var(--line);background:#f7f8fa;color:#9699a6;font-size:.67rem}.queue-row{font-size:.74rem}.queue-row+ .queue-row{border-top:1px solid #ececf1}.queue-row strong{color:#4e5366}.priority{width:max-content;padding:5px 7px;border-radius:8px;background:#efedff;color:#5b53ae;font-size:.65rem;font-weight:900}.priority.urgent{background:#f8dfdc;color:#9c413c}.fiction{margin:12px 0 0;color:#8a8e9d;font-size:.72rem}
+    .model{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:22px}.model article{padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff}.model h2{margin:0 0 .6rem;font-size:1.15rem}.model p{margin:0;color:var(--muted);font-size:.86rem}.model code{font-family:inherit;color:#5d53b8;font-weight:850}.safety{margin-top:22px;padding:24px;border-radius:20px;background:#303146;color:#fff}.safety h2{margin:0;font-size:1.35rem}.safety p{margin:.55rem 0 0;color:#d0d1dc;font-size:.88rem}.safety a{color:#ffe0d8;font-weight:900}.details{display:grid;gap:9px;margin-top:22px}details{border:1px solid var(--line);border-radius:14px;background:#fff}details summary{min-height:48px;padding:12px 16px;cursor:pointer;font-weight:850}details p{margin:0;padding:0 16px 16px;color:var(--muted);font-size:.85rem}.foot{display:flex;justify-content:space-between;gap:20px;margin-top:30px;padding-top:20px;border-top:1px solid var(--line);color:#858999;font-size:.78rem}
+    @media(max-width:900px){.hero,.student-preview{grid-template-columns:1fr}.teacher-preview{grid-template-columns:1fr}.side{display:none}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.model{grid-template-columns:1fr}}@media(max-width:560px){.topbar{min-height:68px;padding-inline:12px}.brand small{display:none}.archive{font-size:.72rem}main{width:min(100% - 20px,520px);padding-top:30px}.surface{padding:18px;border-radius:20px}.surface-head{align-items:flex-start;flex-direction:column}.moods{grid-template-columns:repeat(2,minmax(0,1fr))}.teacher-main{padding:15px}.queue{overflow-x:auto}.queue-head,.queue-row{min-width:620px}.foot{flex-direction:column}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media(forced-colors:active){.surface,.boundary,.choice,.metric{border:2px solid CanvasText}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="topbar">
+    <a class="brand" href="../../">心伴 <small>AI-PET · v4.0.0</small></a>
+    <a class="archive" href="../../">返回全部版本</a>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="title">
+      <div>
+        <p class="eyebrow">FIXED ARCHIVE · INTERFACE &amp; SAFETY NOTES</p>
+        <h1 id="title">双端视觉工作台</h1>
+        <p class="lead">v4.0.0 把学生每日记录与教师人工支持整理成更安静、清楚的双端体验。下面是固定界面与功能说明，不是正在运行的全栈系统。</p>
+      </div>
+      <aside class="boundary" aria-labelledby="boundary-title">
+        <strong>STATIC ARCHIVE</strong>
+        <h2 id="boundary-title">本页没有连接任何服务</h2>
+        <p>不请求模型 API，不连接数据库，不保存输入，不发送危机通知，也不显示真实学生信息。</p>
+        <div class="status" aria-label="静态页连接状态"><span>模型：未连接</span><span>数据库：未连接</span><span>存储：无</span><span>通知：无</span></div>
+      </aside>
+    </section>
+
+    <div class="notice" role="note"><strong>安全演示说明：</strong>以下学生和教师界面只是静态排版示意。教师数字与匿名编号完全虚构；本页没有可提交表单，不能把任何内容交给老师或 AI。请勿在公开演示中录入真实个人信息。</div>
+
+    <nav class="jump" aria-label="本页内容"><a href="#student-surface">学生端说明</a><a href="#teacher-surface">教师端说明</a><a href="#model-boundary">模型与密钥</a><a href="#safety-boundary">安全边界</a></nav>
+
+    <section id="student-surface" class="surface" aria-labelledby="student-title">
+      <header class="surface-head"><div><p>STUDENT SURFACE</p><h2 id="student-title">每日记录，不建立依赖关系</h2></div><span class="static-tag">静态示意</span></header>
+      <div class="student-preview">
+        <article class="companion">
+          <span class="online">小伴 · AI 回应可选</span>
+          <div class="companion-copy"><b>小伴</b><p>可以帮学生把今天理清一点，但不是真人，也可能理解错。</p></div>
+          <div class="limit"><strong>一次短会话的边界</strong>记录心情 · 可选一次 AI 建议 · 需要时连接真人</div>
+        </article>
+        <article class="checkin">
+          <h3>把此刻轻轻记下来</h3><p>先选心情，再决定是否补充文字；没有标准答案。</p>
+          <div class="moods" aria-label="心情选项示意"><span>开心 · 明亮</span><span>平静 · 安稳</span><span>紧张 · 绷紧</span><span>难过 · 低落</span><span>烦躁 · 发热</span><span>说不清 · 模糊</span></div>
+          <div class="field-demo">选填文字区域示意：正式全栈页面会提醒不要填写姓名、电话或住址。</div>
+          <div class="choices"><div class="choice"><b>我想找真人聊聊</b><small>由学生主动选择；只共享完成支持所需的最少信息。</small></div><div class="choice ai"><b>我也想要一条 AI 建议</b><small>默认关闭；每次单独选择，AI 回复不作为诊断。</small></div></div>
+          <span class="button" aria-disabled="true">保存今天的记录 · 静态不可提交</span>
+          <p class="demo-caption">语音转写和设备朗读属于全栈功能，本静态归档不会请求麦克风或播放声音。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="teacher-surface" class="surface" aria-labelledby="teacher-title">
+      <header class="surface-head"><div><p>TEACHER SURFACE</p><h2 id="teacher-title">先看聚合，再处理少量支持线索</h2></div><span class="static-tag">虚构脱敏数据</span></header>
+      <div class="teacher-preview">
+        <aside class="side" aria-label="工作台导航示意"><b>工作台</b><span>总览</span><span>学生支持</span><span>核对流程</span></aside>
+        <div class="teacher-main">
+          <p>学生支持工作台</p><h3>您好，老师</h3>
+          <div class="metrics" aria-label="完全虚构的汇总示意"><article class="metric"><span>今日完成</span><strong>24</strong><small>份心情记录</small></article><article class="metric"><span>7 天平均</span><strong>22.9</strong><small>份记录 / 日</small></article><article class="metric"><span>主动支持请求</span><strong>3</strong><small>位匿名同学</small></article><article class="metric urgent"><span>立即人工确认</span><strong>1</strong><small>必须现实核对</small></article></div>
+          <div class="queue" role="table" aria-label="完全虚构的支持队列示意"><div class="queue-head" role="row"><span role="columnheader">匿名编号</span><span role="columnheader">心情选择</span><span role="columnheader">支持级别</span><span role="columnheader">建议下一步</span></div><div class="queue-row" role="row"><strong role="cell">同学 X-021</strong><span role="cell">难过</span><span role="cell" class="priority urgent">立即确认</span><span role="cell">当面完成安全核对</span></div><div class="queue-row" role="row"><strong role="cell">同学 X-014</strong><span role="cell">紧张</span><span role="cell" class="priority">温和跟进</span><span role="cell">合适时间私下关心</span></div></div>
+          <p class="fiction">以上数字、时间和编号完全虚构。本界面不显示姓名、普通聊天原文或个体排名。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="model-boundary" class="model" aria-label="模型与部署边界">
+      <article><h2>主模型：Qwen 北京</h2><p>v4 全栈运行时以阿里云 Model Studio 北京地域的 <code>Qwen</code> 为主模型路线。该说明不表示本静态页面已经连接模型。</p></article>
+      <article><h2>真实 API：仅服务端密钥</h2><p>真实调用必须由部署管理员在服务端配置密钥。密钥不得写进浏览器 JavaScript、GitHub Pages、公开仓库、二维码参数或学生输入框。</p></article>
+    </section>
+
+    <section id="safety-boundary" class="safety" aria-labelledby="safety-title"><h2 id="safety-title">网页不能代替现实中的人</h2><p>本原型不是心理测评、诊断、治疗、自动转介或紧急服务。如果学生或他人正面临立即危险，请联系身边可信任的成年人并拨打 <a href="tel:110">110</a>；突发伤病拨打 <a href="tel:120">120</a>。静态页面不会替你通知老师。</p></section>
+
+    <div class="details">
+      <details><summary>教师端为什么不显示原文？</summary><p>普通对话原文通常超出完成支持所需的最少范围，也容易引入误读和标签化。教师端只呈现匿名编号、结构化选择、时间和人工核对优先级。</p></details>
+      <details><summary>正式试点还需要什么？</summary><p>学校审批、监护人同意、学生本人同意、教师值守、供应商协议、服务端密钥治理、数据留存期限与可验证的危机送达闭环。</p></details>
+    </div>
+
+    <footer class="foot"><span>心伴 AI-Pet v4.0.0 · 固定归档说明</span><span>建立日期：2026-08-12 · 不含真实学生数据</span></footer>
+  </main>
+</body>
+</html>

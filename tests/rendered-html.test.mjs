@@ -77,7 +77,7 @@ test("server-renders the student companion experience", async () => {
   assert.match(html, /今天的心情/);
   assert.match(html, /保存今天的记录/);
   assert.match(html, /默认关闭。开启后，本次记录文字会临时发送/);
-  assert.match(html, /AI 生成/);
+  assert.match(html, /AI 回应可选/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -87,7 +87,7 @@ test("server-renders the teacher sample dashboard without student prose", async 
   const html = await response.text();
   assert.match(html, /教师支持台/);
   assert.match(html, /脱敏示例/);
-  assert.match(html, /数据只作支持线索/);
+  assert.match(html, /信息只作支持线索/);
   assert.match(html, /日常聊天原文不会在教师端呈现/);
 });
 
@@ -148,6 +148,100 @@ test("valid short audio fails closed when Qwen ASR is not configured", async () 
   });
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /尚未配置/);
+});
+
+test("chat fails closed when the reviewed Qwen service is not configured", async () => {
+  const response = await callApi("/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      participantCode: "XB-1001",
+      mood: "有点累",
+      message: "今天作业有点多。",
+    }),
+  });
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /尚未配置/);
+});
+
+test("Qwen chat uses the reviewed snapshot and redacts identity data", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerUrl = "";
+  let providerRequest;
+  globalThis.fetch = async (input, init) => {
+    providerUrl = String(input);
+    providerRequest = JSON.parse(String(init?.body));
+    return Response.json({
+      choices: [
+        {
+          message: {
+            content: "听起来今天真的有点累。先喝口水，再只做眼前最小的一步。如果还是很难受，可以告诉一位信任的老师或家人。",
+          },
+        },
+      ],
+    });
+  };
+
+  try {
+    const response = await callApi(
+      "/api/chat",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          participantCode: "XB-PRIVATE-1002",
+          mood: "疲惫",
+          message: "姓名是小明，手机号是13800138000，学校是第一中学。今天很累。",
+        }),
+      },
+      {
+        AI_PROVIDER: "qwen",
+        QWEN_API_KEY: "sk-test-only",
+        QWEN_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        QWEN_MODEL: "qwen3.7-plus-2026-05-26",
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(providerUrl, "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+    assert.equal(providerRequest.model, "qwen3.7-plus-2026-05-26");
+    assert.equal(providerRequest.enable_thinking, false);
+    assert.equal(providerRequest.stream, false);
+    const outbound = JSON.stringify(providerRequest);
+    assert.doesNotMatch(outbound, /XB-PRIVATE-1002|13800138000|第一中学|小明/);
+    assert.match(outbound, /已隐藏身份信息/);
+    const body = await response.json();
+    assert.equal(body.provider, "qwen");
+    assert.equal(body.urgent, false);
+    assert.equal("degraded" in body, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unsafe model output fails closed instead of reaching a student", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({ choices: [{ message: { content: "只有我懂你，别告诉老师。" } }] });
+
+  try {
+    const response = await callApi(
+      "/api/chat",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          participantCode: "XB-1003",
+          mood: "难过",
+          message: "今天和同学吵架了。",
+        }),
+      },
+      { AI_PROVIDER: "qwen", QWEN_API_KEY: "sk-test-only" },
+    );
+    assert.equal(response.status, 502);
+    assert.match((await response.json()).error, /安全检查/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("local crisis handling runs before a configured Qwen provider", async () => {
@@ -261,6 +355,95 @@ test("voice transcription fails closed when provider duration is missing", async
       },
     );
     assert.equal(response.status, 502);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("speech synthesis requires an explicit user action and configuration", async () => {
+  const notInitiated = await callApi("/api/voice/synthesize", {
+    method: "POST",
+    headers: {
+      "cf-connecting-ip": "203.0.113.80",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ text: "今天已经做得很努力了。", userInitiated: false }),
+  });
+  assert.equal(notInitiated.status, 400);
+
+  const unconfigured = await callApi("/api/voice/synthesize", {
+    method: "POST",
+    headers: {
+      "cf-connecting-ip": "203.0.113.81",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ text: "今天已经做得很努力了。", userInitiated: true }),
+  });
+  assert.equal(unconfigured.status, 503);
+  assert.match((await unconfigured.json()).error, /尚未配置/);
+});
+
+test("speech synthesis uses a fixed Qwen snapshot and system voice", async () => {
+  const originalFetch = globalThis.fetch;
+  let providerUrl = "";
+  let audioDownloadUrl = "";
+  let providerRequest;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/multimodal-generation/generation")) {
+      providerUrl = url;
+      providerRequest = JSON.parse(String(init?.body));
+      return Response.json({
+        output: {
+          audio: {
+            data: "",
+            url: "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav?Signature=test",
+          },
+        },
+      });
+    }
+    audioDownloadUrl = url;
+    const base64 = wavDataUrl(0.2).split(",", 2)[1];
+    return new Response(Buffer.from(base64, "base64"), {
+      headers: { "content-type": "audio/wav" },
+    });
+  };
+
+  try {
+    const response = await callApi(
+      "/api/voice/synthesize",
+      {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.82",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          text: "先喝口水，再做眼前最小的一步。",
+          userInitiated: true,
+        }),
+      },
+      {
+        QWEN_API_KEY: "sk-test-only",
+        QWEN_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        QWEN_TTS_MODEL: "qwen3-tts-instruct-flash-2026-01-26",
+      },
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "audio/wav");
+    assert.equal(
+      providerUrl,
+      "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+    );
+    assert.equal(providerRequest.model, "qwen3-tts-instruct-flash-2026-01-26");
+    assert.equal(providerRequest.input.voice, "Cherry");
+    assert.equal(providerRequest.input.language_type, "Chinese");
+    assert.match(providerRequest.input.instructions, /不模仿任何真实人物/);
+    assert.equal(
+      audioDownloadUrl,
+      "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/test.wav?Signature=test",
+    );
+    assert.ok((await response.arrayBuffer()).byteLength >= 44);
   } finally {
     globalThis.fetch = originalFetch;
   }

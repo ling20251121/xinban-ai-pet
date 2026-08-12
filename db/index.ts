@@ -10,15 +10,7 @@ export interface RuntimeEnv {
   QWEN_BASE_URL?: string;
   QWEN_MODEL?: string;
   QWEN_ASR_MODEL?: string;
-  DEEPSEEK_API_KEY?: string;
-  DEEPSEEK_BASE_URL?: string;
-  DEEPSEEK_MODEL?: string;
-  DOUBAO_API_KEY?: string;
-  DOUBAO_BASE_URL?: string;
-  DOUBAO_MODEL?: string;
-  KIMI_API_KEY?: string;
-  KIMI_BASE_URL?: string;
-  KIMI_MODEL?: string;
+  QWEN_TTS_MODEL?: string;
   PARTICIPANT_HASH_PEPPER?: string;
   TEACHER_ACCESS_KEY?: string;
 }

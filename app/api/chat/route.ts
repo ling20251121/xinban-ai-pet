@@ -29,7 +29,6 @@ export async function POST(request: Request): Promise<Response> {
       reply: companion.reply,
       urgent: false,
       provider: companion.provider,
-      ...(companion.degraded ? { degraded: true } : {}),
     });
   } catch (error) {
     return handleApiError(error);
