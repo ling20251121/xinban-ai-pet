@@ -42,6 +42,20 @@ export function handleApiError(error: unknown): Response {
     return jsonResponse({ error: "心情记录服务暂时不可用，请稍后再试。" }, 503);
   }
 
+  // Keep unexpected production failures diagnosable without logging request
+  // bodies, cookies, credentials, provider payloads, or stack traces. Database
+  // drivers report the failed constraint in `message`; redact credential-like
+  // tokens and cap its length before sending it to the server-only log stream.
+  const diagnostic = error instanceof Error
+    ? {
+        name: error.name.slice(0, 80),
+        message: error.message
+          .replace(/(?:sk|token|key)[-_A-Za-z0-9.]{12,}/giu, "[REDACTED]")
+          .slice(0, 500),
+      }
+    : { name: "UnknownError", message: "Non-Error value" };
+  console.error("Unhandled API error", diagnostic);
+
   // Never return database, provider, or request-body details to the browser.
   return jsonResponse({ error: "服务暂时开小差了，请稍后再试。" }, 500);
 }
