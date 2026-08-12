@@ -1,17 +1,23 @@
 import { env } from "cloudflare:workers";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./schema";
+import { D1SystemDatabase } from "@/lib/d1-adapter";
+import type { RuntimeConfig, SystemDatabase } from "@/lib/database-types";
 
-export interface RuntimeEnv {
+export interface RuntimeEnv extends RuntimeConfig {
   DB?: D1Database;
-  AI_PROVIDER?: string;
-  QWEN_API_KEY?: string;
-  DASHSCOPE_API_KEY?: string;
-  QWEN_BASE_URL?: string;
-  QWEN_MODEL?: string;
-  QWEN_ASR_MODEL?: string;
-  QWEN_TTS_MODEL?: string;
-  AUTH_BOOTSTRAP_TOKEN?: string;
+}
+
+interface RuntimeOverride {
+  database: SystemDatabase;
+  runtime: RuntimeConfig;
+}
+
+const RUNTIME_OVERRIDE = Symbol.for("xinban.v5.1.runtime");
+type RuntimeGlobal = typeof globalThis & { [RUNTIME_OVERRIDE]?: RuntimeOverride };
+
+function nodePostgresSelected(): boolean {
+  return typeof process !== "undefined" && process.env.XINBAN_RUNTIME === "node-postgres";
 }
 
 export class DatabaseUnavailableError extends Error {
@@ -24,7 +30,21 @@ export class DatabaseUnavailableError extends Error {
 }
 
 export function getRuntimeEnv(): RuntimeEnv {
-  return env as unknown as RuntimeEnv;
+  return (
+    (globalThis as RuntimeGlobal)[RUNTIME_OVERRIDE]?.runtime ??
+    (nodePostgresSelected()
+      ? (process.env as RuntimeEnv)
+      : (env as unknown as RuntimeEnv))
+  );
+}
+
+/** Called only by the separate Node/PostgreSQL entry before serving requests. */
+export function installRuntimeOverride(override: RuntimeOverride): void {
+  (globalThis as RuntimeGlobal)[RUNTIME_OVERRIDE] = override;
+}
+
+export function clearRuntimeOverride(): void {
+  delete (globalThis as RuntimeGlobal)[RUNTIME_OVERRIDE];
 }
 
 export function getD1(): D1Database {
@@ -34,6 +54,17 @@ export function getD1(): D1Database {
   }
 
   return database;
+}
+
+export function getSystemDatabaseBinding(): SystemDatabase {
+  const override = (globalThis as RuntimeGlobal)[RUNTIME_OVERRIDE];
+  if (override) return override.database;
+  if (nodePostgresSelected()) {
+    throw new Error(
+      "PostgreSQL runtime is not registered. Import server/register-postgres before serving requests.",
+    );
+  }
+  return new D1SystemDatabase(getD1());
 }
 
 /** Retained for server components that prefer Drizzle; API queries use D1 prepared statements. */

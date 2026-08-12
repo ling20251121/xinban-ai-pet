@@ -1,4 +1,5 @@
-import { getD1 } from "@/db";
+import { getSystemDatabaseBinding } from "@/db";
+import type { SystemDatabase } from "@/lib/database-types";
 
 const TABLE_SQL = [
   `CREATE TABLE IF NOT EXISTS school_classes (
@@ -92,7 +93,7 @@ const INDEX_SQL = [
 
 const readyByDatabase = new WeakMap<object, Promise<void>>();
 
-async function initialize(database: D1Database): Promise<void> {
+async function initializeD1(database: SystemDatabase): Promise<void> {
   await database.batch(TABLE_SQL.map((statement) => database.prepare(statement)));
 
   // v4 databases have mood_entries without controlled owner columns. These
@@ -102,7 +103,7 @@ async function initialize(database: D1Database): Promise<void> {
     .prepare("PRAGMA table_info(mood_entries)")
     .all<{ name: string }>();
   const names = new Set(columns.results.map((column: { name: string }) => column.name));
-  const alterations: ReturnType<D1Database["prepare"]>[] = [];
+  const alterations: ReturnType<SystemDatabase["prepare"]>[] = [];
   if (!names.has("user_id")) {
     alterations.push(database.prepare("ALTER TABLE mood_entries ADD COLUMN user_id TEXT"));
   }
@@ -114,11 +115,12 @@ async function initialize(database: D1Database): Promise<void> {
   await database.batch(INDEX_SQL.map((statement) => database.prepare(statement)));
 }
 
-export async function getSystemDatabase(): Promise<D1Database> {
-  const database = getD1();
+export async function getSystemDatabase(): Promise<SystemDatabase> {
+  const database = getSystemDatabaseBinding();
+  if (database.dialect === "postgres") return database;
   let schemaReady = readyByDatabase.get(database as object);
   if (!schemaReady) {
-    schemaReady = initialize(database);
+    schemaReady = initializeD1(database);
     readyByDatabase.set(database as object, schemaReady);
   }
   try {

@@ -9,6 +9,8 @@ import {
 } from "@/lib/auth";
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
+import { getRuntimeEnv } from "@/db";
+import { isAdultEvaluationOnly, isPublicDemoMode } from "@/lib/public-demo";
 
 function text(value: unknown, label: string, max: number): string {
   if (typeof value !== "string") throw new ApiError(400, `${label}格式不正确。`);
@@ -140,6 +142,9 @@ export async function createStudent(
   teacher: SessionUser,
   input: Record<string, unknown>,
 ) {
+  if (isAdultEvaluationOnly(getRuntimeEnv()) || isPublicDemoMode(getRuntimeEnv())) {
+    throw new ApiError(403, "公开演示模式不允许创建真实学生账号。");
+  }
   const classId = id(input.classId, "班级编号");
   await requireOwnedClass(teacher.id, classId);
   const username = normalizeSchoolUsername(input.username);

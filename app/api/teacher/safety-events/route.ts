@@ -2,9 +2,12 @@ import { requireTeacher } from "@/lib/auth";
 import { ensureStrictSameOrigin, handleApiError, jsonResponse, readJsonBody } from "@/lib/http";
 import { listSafetyEvents, updateSafetyEvent } from "@/lib/safety-events";
 import { asObject, parseOptionalEntryId } from "@/lib/validation";
+import { getRuntimeEnv } from "@/db";
+import { requireStudentMode } from "@/lib/public-demo";
 
 export async function GET(request: Request): Promise<Response> {
   try {
+    requireStudentMode(getRuntimeEnv());
     const { user } = await requireTeacher(request);
     const classId = parseOptionalEntryId(
       new URL(request.url).searchParams.get("classId"),
@@ -15,6 +18,7 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function PATCH(request: Request): Promise<Response> {
   try {
+    requireStudentMode(getRuntimeEnv());
     ensureStrictSameOrigin(request);
     const { user } = await requireTeacher(request);
     const body = asObject(await readJsonBody<unknown>(request));

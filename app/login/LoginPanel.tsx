@@ -35,10 +35,11 @@ export default function LoginPanel() {
     let active = true;
     void fetch("/api/auth/session", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { authenticated?: boolean; user?: LoginUser }) => {
+      .then((data) => {
+        const session = data as { authenticated?: boolean; user?: LoginUser };
         if (!active) return;
-        if (data.authenticated && data.user) {
-          window.location.replace(safeNext(data.user.role));
+        if (session.authenticated && session.user) {
+          window.location.replace(safeNext(session.user.role));
           return;
         }
         setChecking(false);

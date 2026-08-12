@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="心伴 AI-Pet v5.2.0：以合成学生情境收集真实成年教师与专家匿名形成性评价的静态归档说明">
+  <title>心伴 AI-Pet v5.2.0 · 成人形成性评估</title>
+  <style>
+    :root{--ink:#2c3045;--muted:#70768a;--violet:#6457cf;--violet-soft:#efecff;--rose:#9e4e6b;--rose-soft:#fbeaf0;--mint:#287867;--mint-soft:#e9f7f2;--amber:#855f28;--amber-soft:#fff5e5;--line:#dedeea;--paper:#fff;--canvas:#f8f7fc;--shadow:0 24px 68px rgba(63,54,108,.11)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;background:radial-gradient(circle at 10% 7%,#eee9ff 0,transparent 31%),radial-gradient(circle at 91% 15%,#f8e6ed 0,transparent 27%),var(--canvas);line-height:1.72}a{color:inherit}.skip{position:fixed;top:8px;left:12px;z-index:20;transform:translateY(-150%);padding:9px 13px;border-radius:10px;background:var(--ink);color:#fff}.skip:focus{transform:none}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:76px;padding:12px max(22px,calc((100vw - 1040px)/2));border-bottom:1px solid var(--line);background:rgba(255,255,255,.96)}.brand{text-decoration:none;font-size:1.15rem;font-weight:900}.brand small{margin-left:8px;color:#8a8e9e;font-size:.7rem;letter-spacing:.08em}.archive{display:inline-flex;min-height:44px;align-items:center;padding:8px 13px;border:1px solid var(--line);border-radius:11px;background:#fff;color:#5f597f;font-size:.82rem;font-weight:800;text-decoration:none}.archive:focus-visible,.button:focus-visible{outline:3px solid #9287e7;outline-offset:3px}
+    main{width:min(1040px,calc(100% - 32px));margin:0 auto;padding:50px 0 64px}.card{position:relative;overflow:hidden;padding:clamp(24px,5vw,52px);border:1px solid var(--line);border-radius:30px;background:rgba(255,255,255,.97);box-shadow:var(--shadow)}.card::after{position:absolute;top:-80px;right:-55px;width:230px;height:230px;border-radius:45% 55% 52% 48%;background:linear-gradient(145deg,#b46583,#795fd5);content:"";opacity:.12;transform:rotate(12deg)}.eyebrow{position:relative;z-index:1;margin:0;color:#8d7290;font-size:.74rem;font-weight:900;letter-spacing:.13em}.version{display:inline-flex;margin-left:8px;padding:5px 9px;border-radius:999px;background:var(--rose-soft);color:var(--rose);letter-spacing:0}.card h1{position:relative;z-index:1;margin:.6rem 0 .9rem;font-size:clamp(2.15rem,6vw,4.15rem);line-height:1.04;letter-spacing:-.05em}.lead{position:relative;z-index:1;max-width:820px;margin:0;color:var(--muted);font-size:1.02rem}.scope{margin:28px 0;padding:19px 21px;border:1px solid #e5c7d2;border-radius:17px;background:#fff7fa;color:#6f5360}.scope strong{color:#843d57}.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:25px 0}.step{position:relative;padding:18px;border:1px solid #e3dce6;border-radius:16px;background:#fffcfe}.step::after{position:absolute;top:50%;right:-8px;color:#90869a;content:"→";transform:translateY(-50%)}.step:last-child::after{display:none}.step b{display:block;color:var(--rose);font-size:.72rem;letter-spacing:.08em}.step strong{display:block;margin:5px 0;color:#34394d;font-size:1rem}.step small{color:#7c8391}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.panel{padding:21px;border:1px solid var(--line);border-radius:18px;background:#fff}.panel p{margin:0 0 8px;color:#90799a;font-size:.7rem;font-weight:900;letter-spacing:.1em}.panel h2{margin:0 0 7px;font-size:1.13rem}.panel span{color:var(--muted);font-size:.86rem}.measures{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin-top:22px}.measure{padding:18px;border-radius:16px;background:#343347;color:#fff}.measure strong{display:block;font-size:1.05rem}.measure span{color:#d7d5df;font-size:.8rem}.measure.safe{background:var(--mint)}.boundaries{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:22px}.boundary{padding:18px;border:1px solid var(--line);border-radius:16px;background:#fbfbfd}.boundary strong{display:block;margin-bottom:5px;color:#5b53ad}.boundary p{margin:0;color:var(--muted);font-size:.84rem}.notice{margin-top:20px;padding:18px 19px;border:1px solid #ead7b7;border-radius:16px;background:var(--amber-soft);color:#735a34;font-size:.86rem}.notice strong{color:#76501d}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:27px}.button{display:inline-flex;min-height:46px;align-items:center;justify-content:center;padding:8px 16px;border-radius:12px;font-weight:900;text-decoration:none}.primary{background:var(--violet);color:#fff}.secondary{border:1px solid var(--line);background:#fff;color:#5b5870}.foot{margin:25px 0 0;padding-top:18px;border-top:1px solid var(--line);color:#898d9d;font-size:.78rem}
+    @media(max-width:820px){.flow{grid-template-columns:repeat(2,minmax(0,1fr))}.step:nth-child(2)::after{display:none}.measures{grid-template-columns:1fr 1fr}.measure.safe{grid-column:1/-1}}@media(max-width:620px){.grid,.boundaries,.flow,.measures{grid-template-columns:1fr}.step::after{top:auto;right:auto;bottom:-18px;left:50%;transform:translateX(-50%) rotate(90deg)}.step:nth-child(2)::after{display:block}.measure.safe{grid-column:auto}}@media(max-width:480px){.topbar{padding-inline:11px}.brand small{display:none}main{width:min(100% - 20px,480px);padding-top:26px}.card{padding:22px;border-radius:21px}.actions{display:grid}.button{width:100%}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}@media(forced-colors:active){.card,.step,.panel,.boundary{border:2px solid CanvasText}}
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">跳到主要内容</a>
+  <header class="topbar"><a class="brand" href="../../">心伴 <small>AI-PET · v5.2.0</small></a><a class="archive" href="../../">返回全部版本</a></header>
+  <main id="main">
+    <article class="card">
+      <p class="eyebrow">ADULT FORMATIVE EVALUATION <span class="version">v5.2.0</span></p>
+      <h1>不接触真实学生，<br>也能诚实评估设计。</h1>
+      <p class="lead">v5.2.0 使用 12 个固定、明确标注的合成学生情境，收集真实成年教师与专家的匿名形成性评价。它用于检验界面、支持线索与 AI 回应材料是否值得继续迭代，不预填任何虚假结果。</p>
+
+      <div class="scope" role="note"><strong>本固定入口只是静态归档：</strong>它不联网、不登录、不提交评价、不调用 Qwen、不读写数据库，也不使用浏览器存储；页面中没有邀请码、服务凭据、参与者记录或真实学生数据。</div>
+
+      <section class="flow" aria-label="成人评估流程">
+        <article class="step"><b>01 · INVITE</b><strong>一次性邀请码</strong><small>仅邀请成年教师或专家</small></article>
+        <article class="step"><b>02 · CONSENT</b><strong>四项明确同意</strong><small>成人、自愿、合成情境与数据用途</small></article>
+        <article class="step"><b>03 · EVALUATE</b><strong>匿名形成性评价</strong><small>不采集姓名、学校、电话或邮箱</small></article>
+        <article class="step"><b>04 · CONTROL</b><strong>撤回与受控导出</strong><small>研究者 CSV；小样本分组隐藏</small></article>
+      </section>
+
+      <section class="grid" aria-label="教师与专家评估设计">
+        <article class="panel"><p>TEACHER</p><h2>平衡交叉条件</h2><span>教师在“仅仪表板”与“仪表板加结构化关爱提示”两种条件间采用平衡顺序，降低固定顺序造成的偏差。</span></article>
+        <article class="panel"><p>EXPERT</p><h2>先独立参考，再看冻结材料</h2><span>专家必须先提交自己的独立参考判断，随后才解锁预先冻结的 AI/支持材料，避免实时生成或先见答案污染评价。</span></article>
+        <article class="panel"><p>MATERIALS</p><h2>12 个固定合成学生情境</h2><span>所有案例均为研究团队设计的虚构情境，不由真实学生记录改写，也不允许评估者录入可识别学生信息。</span></article>
+        <article class="panel"><p>MODEL SEPARATION</p><h2>实时 Qwen 体验与研究材料分离</h2><span>Qwen 实时对话只能作为产品体验；用于比较和评分的研究材料保持冻结，不能把每次变化的实时输出混入主要研究结果。</span></article>
+      </section>
+
+      <section class="measures" aria-label="评价与数据治理">
+        <article class="measure"><strong>SUS 与形成性评分</strong><span>可用性、信任、适切性和安全边界</span></article>
+        <article class="measure"><strong>0–100 工作负荷</strong><span>记录评估任务的主观负担</span></article>
+        <article class="measure safe"><strong>N&lt;5 不展示分组汇总</strong><span>研究者可撤回记录并导出匿名 CSV</span></article>
+      </section>
+
+      <section class="boundaries" aria-label="研究边界">
+        <article class="boundary"><strong>真实成人评价，不是模拟结果</strong><p>系统不预填“看起来有效”的分数或图表。页面出现的研究数据只能来自自愿参与的成年教师与专家；合成的是学生情境，不是参与者结果。</p></article>
+        <article class="boundary"><strong>形成性试点，不自动成为论文证据</strong><p>在取得适用的机构与伦理审批、完成方案预注册或明确分析计划之前，评价数据不能被表述为正式研究结果，更不能推断学生成效。</p></article>
+      </section>
+
+      <div class="notice"><strong>重要说明：</strong>本评估不招募未成年人、不收集真实学生数据，也不提供心理测评、诊断、治疗、自动转介或紧急服务。教师与专家如在开放文字中输入真实学生身份或敏感信息，应立即停止并删除该记录。</div>
+
+      <div class="actions"><a class="button primary" href="../../">返回版本档案</a><a class="button secondary" href="../v5.0.0/">查看上一固定版本</a></div>
+      <p class="foot">心伴 AI-Pet v5.2.0 · 建立日期 2026-08-12 · 固定静态说明 · 不联网、不收数据、不含凭据或预填研究结果</p>
+    </article>
+  </main>
+</body>
+</html>

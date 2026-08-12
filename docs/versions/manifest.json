@@ -1,7 +1,7 @@
 {
   "project": "XinBan AI-Pet",
   "updatedAt": "2026-08-12",
-  "current": "v5.0.0",
+  "current": "v5.2.0",
   "versions": [
     {
       "version": "v1.0.0",
@@ -95,6 +95,36 @@
       "liveModelKeyIncluded": false,
       "realStudentData": false,
       "approvedForRealMinorPilot": false
+    },
+    {
+      "version": "v5.2.0",
+      "type": "adult-formative-evaluation-with-synthetic-student-scenarios",
+      "commit": null,
+      "fixedPath": "./v5.2.0/",
+      "participants": [
+        "adult-teachers",
+        "adult-experts"
+      ],
+      "syntheticStudentScenarios": 12,
+      "consentItems": 4,
+      "access": "one-time-invitation-code",
+      "teacherDesign": "balanced-crossover",
+      "expertDesign": "independent-reference-before-frozen-material",
+      "measures": [
+        "SUS",
+        "workload",
+        "formative-ratings"
+      ],
+      "withdrawal": true,
+      "csvExport": true,
+      "minimumGroupDisplayN": 5,
+      "liveModelExperience": "Qwen-separated-from-frozen-research-material",
+      "archivePageNetworkRequests": false,
+      "browserStorage": false,
+      "liveModelKeyIncluded": false,
+      "realStudentData": false,
+      "prefilledResearchResults": false,
+      "approvedAsResearchResults": false
     }
   ]
 }

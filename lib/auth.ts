@@ -1,6 +1,7 @@
 import { getRuntimeEnv } from "@/db";
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
+import { isAdultEvaluationOnly, requireStudentMode } from "@/lib/public-demo";
 
 const encoder = new TextEncoder();
 const PASSWORD_ITERATIONS = 210_000;
@@ -244,6 +245,7 @@ export async function createSession(userId: string): Promise<string> {
 }
 
 export async function getOptionalSession(request: Request): Promise<AuthSession | null> {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) return null;
   const token = cookieValue(request);
   if (!token) return null;
   const tokenHash = await sha256(token);
@@ -271,12 +273,16 @@ export async function requireSession(request: Request): Promise<AuthSession> {
 }
 
 export async function requireTeacher(request: Request): Promise<AuthSession> {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+    throw new ApiError(403, "成人评估模式不启用学校教师工作台。");
+  }
   const session = await requireSession(request);
   if (session.user.role !== "teacher") throw new ApiError(403, "仅教师账号可以访问。");
   return session;
 }
 
 export async function requireStudentReady(request: Request): Promise<AuthSession> {
+  requireStudentMode(getRuntimeEnv());
   const session = await requireSession(request);
   const user = session.user;
   if (user.role !== "student") throw new ApiError(403, "仅学生账号可以使用此功能。");
@@ -290,6 +296,7 @@ export async function requireStudentReady(request: Request): Promise<AuthSession
 
 /** Export/delete remain available after consent withdrawal. */
 export async function requireStudentIdentity(request: Request): Promise<AuthSession> {
+  requireStudentMode(getRuntimeEnv());
   const session = await requireSession(request);
   if (session.user.role !== "student") {
     throw new ApiError(403, "仅学生账号可以访问本人数据。");
@@ -298,8 +305,14 @@ export async function requireStudentIdentity(request: Request): Promise<AuthSess
 }
 
 export async function requireVoiceUser(request: Request): Promise<AuthSession> {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+    throw new ApiError(403, "成人评估模式不启用账号语音接口。");
+  }
   const session = await requireSession(request);
-  if (session.user.role === "student") return requireStudentReady(request);
+  if (session.user.role === "student") {
+    requireStudentMode(getRuntimeEnv());
+    return requireStudentReady(request);
+  }
   return session;
 }
 
@@ -352,6 +365,9 @@ export async function bootstrapTeacher(input: {
   password: unknown;
   displayName?: unknown;
 }): Promise<SessionUser> {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+    throw new ApiError(403, "成人评估模式不创建学校教师账号。");
+  }
   const configured = getRuntimeEnv().AUTH_BOOTSTRAP_TOKEN?.trim() ?? "";
   const supplied = typeof input.bootstrapToken === "string" ? input.bootstrapToken : "";
   if (configured.length < 24 || !safeEqual(configured, supplied)) {
@@ -364,7 +380,7 @@ export async function bootstrapTeacher(input: {
   const database = await getSystemDatabase();
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
-  const result = await database.prepare(`
+  const bootstrapStatement = database.prepare(`
     INSERT INTO app_users (
       id,role,username,display_name,password_salt,password_hash,password_iterations,
       active,class_id,age_band,must_change_password,created_by_user_id,
@@ -375,7 +391,13 @@ export async function bootstrapTeacher(input: {
   `).bind(
     id, username, displayName, passwordData.salt, passwordData.hash,
     passwordData.iterations, now, now,
-  ).run();
+  );
+  const result = database.dialect === "postgres"
+    ? (await database.batch([
+        database.prepare("SELECT pg_advisory_xact_lock(?)").bind(1_481_191_746),
+        bootstrapStatement,
+      ]))[1]
+    : await bootstrapStatement.run();
   if (Number(result.meta.changes ?? 0) !== 1) {
     throw new ApiError(409, "系统已完成初始化，bootstrap 已永久关闭。");
   }
@@ -388,6 +410,9 @@ export async function bootstrapTeacher(input: {
 }
 
 export async function login(usernameValue: unknown, passwordValue: unknown): Promise<SessionUser> {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) {
+    throw new ApiError(403, "当前公开版本仅使用一次性评估码，不开放学校账号登录。");
+  }
   const username = normalizeSchoolUsername(usernameValue);
   const password = typeof passwordValue === "string" ? passwordValue : "";
   if (!password || password.length > 128) throw new ApiError(401, "用户名或密码不正确。");
@@ -421,6 +446,7 @@ export async function changeOwnPassword(
   currentValue: unknown,
   newValue: unknown,
 ): Promise<SessionUser> {
+  requireStudentMode(getRuntimeEnv());
   const currentPassword = typeof currentValue === "string" ? currentValue : "";
   const newPassword = validatePassword(newValue);
   if (safeEqual(currentPassword, newPassword)) {
@@ -454,6 +480,7 @@ export async function setStudentConsent(
   session: AuthSession,
   accepted: unknown,
 ): Promise<SessionUser> {
+  requireStudentMode(getRuntimeEnv());
   if (session.user.role !== "student") throw new ApiError(403, "仅学生本人可以确认同意。");
   if (session.user.mustChangePassword) throw new ApiError(403, "请先修改初始密码。");
   if (!session.user.guardianConsentVerified) {

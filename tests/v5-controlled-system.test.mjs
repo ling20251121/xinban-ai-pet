@@ -116,7 +116,11 @@ test("0000 then 0001 preserves every legacy mood field", async (t) => {
 test("controlled two-class flow enforces identity, consent and teacher scope", async (t) => {
   const { mf, db } = await newD1();
   t.after(() => mf.dispose());
-  const bindings = { DB: db, AUTH_BOOTSTRAP_TOKEN: "bootstrap-test-token-1234567890" };
+  const bindings = {
+    DB: db,
+    AUTH_BOOTSTRAP_TOKEN: "bootstrap-test-token-1234567890",
+    ADULT_EVALUATION_ONLY: "false",
+  };
 
   const missingOrigin = await callApi(
     "/api/auth/bootstrap",
@@ -510,8 +514,152 @@ test("anonymous chat cannot probe crisis handling or trigger a provider", async 
   const response = await callApi(
     "/api/chat",
     mutation({ mood: "难过", message: "我现在想死，不知道怎么办。" }),
-    { DB: db, AI_PROVIDER: "qwen", QWEN_API_KEY: "test-only" },
+    {
+      DB: db,
+      AI_PROVIDER: "qwen",
+      QWEN_API_KEY: "test-only",
+      ADULT_EVALUATION_ONLY: "false",
+    },
   );
   assert.equal(response.status, 401);
   assert.equal(externalCalls, 0);
+});
+
+test("adult evaluation only blocks every school-account and student-data surface", async (t) => {
+  const { mf, db } = await newD1();
+  t.after(() => mf.dispose());
+  const now = new Date().toISOString();
+  const future = new Date(Date.now() + 60 * 60_000).toISOString();
+  const teacherToken = "t".repeat(43);
+  const studentToken = "s".repeat(43);
+  const encoder = new TextEncoder();
+  const hash = async (value) => {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
+    return Buffer.from(digest).toString("base64url");
+  };
+  await db.exec(`
+    CREATE TABLE school_classes (id TEXT PRIMARY KEY,teacher_user_id TEXT,name TEXT,safety_contact_name TEXT,safety_contact_phone TEXT,active INTEGER,created_at TEXT,updated_at TEXT);
+    CREATE TABLE app_users (id TEXT PRIMARY KEY,role TEXT,username TEXT,display_name TEXT,password_salt TEXT,password_hash TEXT,password_iterations INTEGER,active INTEGER,class_id TEXT,age_band TEXT,must_change_password INTEGER,guardian_consent_verified_at TEXT,guardian_consent_verified_by TEXT,student_consented_at TEXT,student_consent_version TEXT,student_consent_withdrawn_at TEXT,created_by_user_id TEXT,failed_login_count INTEGER,locked_until TEXT,created_at TEXT,updated_at TEXT);
+    CREATE TABLE auth_sessions (token_hash TEXT PRIMARY KEY,user_id TEXT,created_at TEXT,expires_at TEXT,last_seen_at TEXT,revoked_at TEXT);
+  `);
+  await db.prepare("INSERT INTO school_classes VALUES (?,?,?,?,?,?,?,?)")
+    .bind("adult-only-c1", "adult-only-teacher", "Historical class", "Historical contact", "010-00000000", 1, now, now).run();
+  await db.prepare(`INSERT INTO app_users VALUES
+    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(
+      "adult-only-teacher", "teacher", "teacher.old", "Historical teacher", "salt", "hash",
+      210000, 1, null, null, 0, null, null, null, null, null, null, 0, null, now, now,
+    ).run();
+  await db.prepare(`INSERT INTO app_users VALUES
+    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .bind(
+      "adult-only-student", "student", "student.old", "Historical student", "salt", "hash",
+      210000, 1, "adult-only-c1", "under14", 0, now, "adult-only-teacher", now,
+      "2026-08-v1", null, "adult-only-teacher", 0, null, now, now,
+    ).run();
+  await db.prepare("INSERT INTO auth_sessions VALUES (?,?,?,?,?,NULL)")
+    .bind(await hash(teacherToken), "adult-only-teacher", now, future, now).run();
+  await db.prepare("INSERT INTO auth_sessions VALUES (?,?,?,?,?,NULL)")
+    .bind(await hash(studentToken), "adult-only-student", now, future, now).run();
+
+  const bindings = { DB: db, AUTH_BOOTSTRAP_TOKEN: "bootstrap-test-token-1234567890" };
+  const teacherCookie = `xinban_session=${teacherToken}`;
+  const studentCookie = `xinban_session=${studentToken}`;
+
+  const login = await callApi(
+    "/api/auth/login",
+    mutation({ username: "student.old", password: "Any!Password123" }),
+    bindings,
+  );
+  assert.equal(login.status, 403);
+  const teacherLogin = await callApi(
+    "/api/auth/login",
+    mutation({ username: "teacher.old", password: "Any!Password123" }),
+    bindings,
+  );
+  assert.equal(teacherLogin.status, 403);
+  const bootstrap = await callApi(
+    "/api/auth/bootstrap",
+    mutation({
+      bootstrapToken: bindings.AUTH_BOOTSTRAP_TOKEN,
+      username: "teacher.new",
+      password: "Teacher!Pass123",
+    }),
+    bindings,
+  );
+  assert.equal(bootstrap.status, 403);
+  const session = await callApi(
+    "/api/auth/session",
+    { headers: { cookie: studentCookie } },
+    bindings,
+  );
+  assert.equal(session.status, 200);
+  assert.equal((await session.json()).authenticated, false);
+  const teacherSession = await callApi(
+    "/api/auth/session",
+    { headers: { cookie: teacherCookie } },
+    bindings,
+  );
+  assert.equal(teacherSession.status, 200);
+  assert.equal((await teacherSession.json()).authenticated, false);
+
+  const studentRequests = [
+    ["/api/moods", { headers: { cookie: studentCookie } }],
+    ["/api/moods", mutation({ mood: "calm", moodScore: 4, note: "synthetic", goal: "", wantsSupport: false }, studentCookie)],
+    ["/api/moods", { method: "DELETE", headers: { origin: ORIGIN, "content-type": "application/json", cookie: studentCookie }, body: "{}" }],
+    ["/api/chat", mutation({ mood: "calm", message: "synthetic" }, studentCookie)],
+    ["/api/chat", { headers: { cookie: studentCookie } }],
+    ["/api/chat/export", { headers: { cookie: studentCookie } }],
+    ["/api/chat", { method: "DELETE", headers: { origin: ORIGIN, "content-type": "application/json", cookie: studentCookie }, body: "{}" }],
+    ["/api/auth/consent", mutation({ accepted: true }, studentCookie)],
+    ["/api/auth/password", mutation({ currentPassword: "Old!Password123", newPassword: "New!Password456" }, studentCookie)],
+    ["/api/voice/transcribe", mutation({ dataUrl: wavDataUrl(), mimeType: "audio/wav" }, studentCookie)],
+    ["/api/voice/synthesize", mutation({ text: "synthetic", userInitiated: true }, studentCookie)],
+  ];
+  for (const [pathname, init] of studentRequests) {
+    const response = await callApi(pathname, init, bindings);
+    assert.equal(response.status, 403, pathname);
+  }
+
+  const teacherVoice = await callApi(
+    "/api/voice/synthesize",
+    mutation({ text: "synthetic adult input", userInitiated: true }, teacherCookie),
+    bindings,
+  );
+  assert.equal(teacherVoice.status, 403);
+
+  for (const pathname of [
+    "/api/teacher/classes",
+    "/api/teacher/students",
+    "/api/teacher/summary",
+    "/api/teacher/safety-events",
+  ]) {
+    const response = await callApi(pathname, { headers: { cookie: teacherCookie } }, bindings);
+    assert.equal(response.status, 403, pathname);
+  }
+
+  const teacherMutations = [
+    ["/api/teacher/classes", mutation({ name: "Synthetic class" }, teacherCookie)],
+    ["/api/teacher/students", mutation({ username: "synthetic.student" }, teacherCookie)],
+    [
+      "/api/teacher/students",
+      {
+        method: "PATCH",
+        headers: { origin: ORIGIN, "content-type": "application/json", cookie: teacherCookie },
+        body: JSON.stringify({ studentId: "adult-only-student", active: false }),
+      },
+    ],
+    [
+      "/api/teacher/safety-events",
+      {
+        method: "PATCH",
+        headers: { origin: ORIGIN, "content-type": "application/json", cookie: teacherCookie },
+        body: JSON.stringify({ eventId: "synthetic-event", status: "reviewed" }),
+      },
+    ],
+  ];
+  for (const [pathname, init] of teacherMutations) {
+    const response = await callApi(pathname, init, bindings);
+    assert.equal(response.status, 403, `${init.method} ${pathname}`);
+  }
 });

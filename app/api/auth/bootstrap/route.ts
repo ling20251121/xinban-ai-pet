@@ -6,10 +6,13 @@ import {
   sessionCookie,
 } from "@/lib/auth";
 import { ensureStrictSameOrigin, handleApiError, jsonResponse, readJsonBody } from "@/lib/http";
+import { getRuntimeEnv } from "@/db";
+import { requireStudentMode } from "@/lib/public-demo";
 
 export async function POST(request: Request): Promise<Response> {
   try {
     ensureStrictSameOrigin(request);
+    requireStudentMode(getRuntimeEnv());
     await consumeAuthRateLimit(request, "bootstrap", "first-teacher", 5, 15 * 60);
     const body = asObject(await readJsonBody<unknown>(request));
     const user = await bootstrapTeacher({

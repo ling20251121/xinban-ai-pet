@@ -1,3 +1,5 @@
+import { AdultEvaluationOnlyError } from "@/lib/public-demo";
+
 const JSON_HEADERS = {
   "Cache-Control": "no-store",
   "Content-Type": "application/json; charset=utf-8",
@@ -28,8 +30,9 @@ export function jsonResponse(
 }
 
 export function handleApiError(error: unknown): Response {
-  if (error instanceof ApiError) {
-    return jsonResponse({ error: error.publicMessage }, error.status);
+  if (error instanceof ApiError || error instanceof AdultEvaluationOnlyError) {
+    const apiError = error as ApiError | AdultEvaluationOnlyError;
+    return jsonResponse({ error: apiError.publicMessage }, apiError.status);
   }
 
   if (

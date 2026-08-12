@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import StudentCompanion from "./StudentCompanion";
+import { redirect } from "next/navigation";
+import { getRuntimeEnv } from "@/db";
+import { isAdultEvaluationOnly } from "@/lib/public-demo";
 
 export const metadata: Metadata = {
   title: "今天的心情｜心伴 AI-Pet",
@@ -7,5 +10,6 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) redirect("/evaluate");
   return <StudentCompanion />;
 }

@@ -22,13 +22,28 @@ async function call(pathname, init = {}, bindings = {}) {
 
 test("server renders student, login and teacher experiences", async () => {
   for (const pathname of ["/", "/login", "/teacher"]) {
-    const response = await call(pathname, { headers: { accept: "text/html" } });
+    const response = await call(
+      pathname,
+      { headers: { accept: "text/html" } },
+      { ADULT_EVALUATION_ONLY: "false" },
+    );
     assert.equal(response.status, 200, pathname);
     assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/iu);
     const html = await response.text();
     assert.match(html, /<html|<!doctype/iu);
     assert.doesNotMatch(html, /codex-preview|Your site is taking shape/iu);
   }
+});
+
+test("adult evaluation mode fails closed and redirects every school surface", async () => {
+  for (const pathname of ["/", "/login", "/teacher"]) {
+    const response = await call(pathname, { headers: { accept: "text/html" } });
+    assert.ok([301, 302, 303, 307, 308].includes(response.status), pathname);
+    assert.equal(new URL(response.headers.get("location"), "http://localhost").pathname, "/evaluate");
+  }
+  const evaluation = await call("/evaluate", { headers: { accept: "text/html" } });
+  assert.equal(evaluation.status, 200);
+  assert.match(await evaluation.text(), /成人|合成情境/u);
 });
 
 test("student consent gate exposes data rights without requiring renewed consent", async () => {
@@ -52,7 +67,7 @@ test("v5 protected APIs reject anonymous sessions", async () => {
     "/api/teacher/students",
     "/api/teacher/safety-events",
   ]) {
-    const response = await call(pathname);
+    const response = await call(pathname, {}, { ADULT_EVALUATION_ONLY: "false" });
     assert.equal(response.status, 401, pathname);
   }
 });

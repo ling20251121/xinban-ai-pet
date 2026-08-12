@@ -10,6 +10,24 @@ const { d1, r2 } = hostingConfig;
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
+const isNodePostgresBuild = process.env.XINBAN_RUNTIME === "node-postgres";
+
+const runtimeEnvironment = (): import("vite").Plugin => ({
+  name: "xinban-runtime-environment",
+  enforce: "pre",
+  resolveId(source) {
+    if (source === "cloudflare:workers" && isNodePostgresBuild) {
+      return "\0xinban-node-runtime-environment";
+    }
+    return null;
+  },
+  load(id) {
+    if (id === "\0xinban-node-runtime-environment") {
+      return "export const env = process.env;";
+    }
+    return null;
+  },
+});
 
 const localBindingConfig = {
   main: "./worker/index.ts",
@@ -48,12 +66,15 @@ export default defineConfig(async () => {
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
+      runtimeEnvironment(),
       vinext(),
       sites(),
-      cloudflare({
-        viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        config: localBindingConfig,
-      }),
+      ...(isNodePostgresBuild
+        ? []
+        : [cloudflare({
+            viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
+            config: localBindingConfig,
+          })]),
     ],
   };
 });

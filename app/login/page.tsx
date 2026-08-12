@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import LoginPanel from "./LoginPanel";
 import "./login.css";
+import { redirect } from "next/navigation";
+import { getRuntimeEnv } from "@/db";
+import { isAdultEvaluationOnly } from "@/lib/public-demo";
 
 export const metadata: Metadata = {
   title: "登录｜心伴 AI-Pet",
@@ -8,5 +11,6 @@ export const metadata: Metadata = {
 };
 
 export default function LoginPage() {
+  if (isAdultEvaluationOnly(getRuntimeEnv())) redirect("/evaluate");
   return <LoginPanel />;
 }
