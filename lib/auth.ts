@@ -10,6 +10,9 @@ import {
 
 const encoder = new TextEncoder();
 const PASSWORD_ITERATIONS = 210_000;
+const PASSWORD_KDF_VERSION = "v2";
+const PASSWORD_KDF_STAGES = 3;
+const PASSWORD_STAGE_ITERATIONS = PASSWORD_ITERATIONS / PASSWORD_KDF_STAGES;
 const SESSION_SECONDS = 8 * 60 * 60;
 const SESSION_COOKIE = "xinban_session";
 export const CONSENT_VERSION = "2026-08-v1";
@@ -141,30 +144,87 @@ export async function hashPassword(password: string): Promise<{
 }> {
   const salt = new Uint8Array(16);
   crypto.getRandomValues(salt);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations: PASSWORD_ITERATIONS },
-    key,
-    256,
-  );
+  const bits = await deriveLayeredPassword(password, salt, PASSWORD_ITERATIONS);
   return {
-    salt: bytesToBase64Url(salt),
-    hash: bytesToBase64Url(new Uint8Array(bits)),
+    salt: `${PASSWORD_KDF_VERSION}.${bytesToBase64Url(salt)}`,
+    hash: bytesToBase64Url(bits),
     iterations: PASSWORD_ITERATIONS,
   };
 }
 
+/**
+ * Workerd caps one PBKDF2 call at 100,000 iterations. Three serial stages keep
+ * the configured 210,000-iteration work factor while every provider call stays
+ * below that cap. The previous stage output becomes the next stage password,
+ * so the work cannot be completed as three independent parallel hashes.
+ */
+async function deriveLayeredPassword(
+  password: string,
+  salt: Uint8Array,
+  totalIterations: number,
+): Promise<Uint8Array> {
+  if (
+    totalIterations !== PASSWORD_ITERATIONS ||
+    !Number.isInteger(PASSWORD_STAGE_ITERATIONS)
+  ) {
+    throw new Error("Unsupported layered password work factor.");
+  }
+
+  let material: Uint8Array = encoder.encode(password);
+  for (let stage = 0; stage < PASSWORD_KDF_STAGES; stage += 1) {
+    const stageSalt = new Uint8Array(salt.byteLength + 1);
+    stageSalt.set(salt);
+    stageSalt[salt.byteLength] = stage + 1;
+    const stableMaterial = new Uint8Array(material.byteLength);
+    stableMaterial.set(material);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      stableMaterial,
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt: stageSalt,
+        iterations: PASSWORD_STAGE_ITERATIONS,
+      },
+      key,
+      256,
+    );
+    material = new Uint8Array(bits);
+  }
+  return material;
+}
+
 async function verifyPassword(password: string, row: AuthRow): Promise<boolean> {
-  const salt = base64UrlToBytes(row.password_salt);
+  const layeredPrefix = `${PASSWORD_KDF_VERSION}.`;
+  const isLayered = row.password_salt.startsWith(layeredPrefix);
+  const encodedSalt = isLayered
+    ? row.password_salt.slice(layeredPrefix.length)
+    : row.password_salt;
+  const salt = base64UrlToBytes(encodedSalt);
   if (!salt || row.password_iterations < PASSWORD_ITERATIONS) return false;
   const stableSalt = new Uint8Array(salt.byteLength);
   stableSalt.set(salt);
+
+  if (isLayered) {
+    try {
+      const derived = await deriveLayeredPassword(
+        password,
+        stableSalt,
+        row.password_iterations,
+      );
+      return safeEqual(bytesToBase64Url(derived), row.password_hash);
+    } catch {
+      return false;
+    }
+  }
+
+  // Unprefixed salts are the v5.0 legacy format. Node can still verify them;
+  // runtimes that reject a single 210k call fail closed and require a reset.
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(password),
@@ -172,17 +232,21 @@ async function verifyPassword(password: string, row: AuthRow): Promise<boolean> 
     false,
     ["deriveBits"],
   );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: stableSalt,
-      iterations: row.password_iterations,
-    },
-    key,
-    256,
-  );
-  return safeEqual(bytesToBase64Url(new Uint8Array(bits)), row.password_hash);
+  try {
+    const bits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        hash: "SHA-256",
+        salt: stableSalt,
+        iterations: row.password_iterations,
+      },
+      key,
+      256,
+    );
+    return safeEqual(bytesToBase64Url(new Uint8Array(bits)), row.password_hash);
+  } catch {
+    return false;
+  }
 }
 
 function mapUser(row: AuthRow): SessionUser {
