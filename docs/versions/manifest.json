@@ -99,7 +99,7 @@
     {
       "version": "v5.2.0",
       "type": "adult-formative-evaluation-with-synthetic-student-scenarios",
-      "commit": null,
+      "commit": "7dfeebb72a17b53ce790dee38eaba53192a9eb8b",
       "fixedPath": "./v5.2.0/",
       "participants": [
         "adult-teachers",
