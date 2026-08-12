@@ -11,4 +11,5 @@ work
 *.pem
 *.log
 *.png
+!public/*.png
 docs/versions

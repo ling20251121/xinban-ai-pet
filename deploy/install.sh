@@ -4,6 +4,8 @@ set -eu
 cd "$(dirname "$0")"
 test "$(id -u)" -eq 0 || { echo "Run as root." >&2; exit 1; }
 test -f .env || { echo "Create deploy/.env from deploy/.env.example first." >&2; exit 1; }
+command -v docker >/dev/null 2>&1 || { echo "Docker is not installed or not on PATH." >&2; exit 1; }
+docker compose version >/dev/null 2>&1 || { echo "Docker Compose v2 is required (docker compose)." >&2; exit 1; }
 
 if ! swapon --show=NAME --noheadings | grep -q .; then
   if [ ! -f /swapfile ]; then

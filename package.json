@@ -19,11 +19,15 @@
     "test:postgres-adapter": "node --experimental-strip-types --test tests/v5-postgres-adapter.test.mjs"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-orm": "0.45.2",
     "pg": "8.16.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "vinext": "1.0.0-beta.2"
+    "react-server-dom-webpack": "19.2.6",
+    "vinext": "1.0.0-beta.2",
+    "vite": "8.0.13"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -35,8 +39,6 @@
     "@types/pg": "8.15.5",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
     "esbuild": "0.25.12",
     "eslint": "9.39.4",
@@ -44,11 +46,9 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "16.4.0",
-    "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.59.3",
-    "vite": "8.0.13",
     "wrangler": "4.92.0"
   },
   "type": "module"
