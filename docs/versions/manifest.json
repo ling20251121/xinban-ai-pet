@@ -204,7 +204,7 @@
     {
       "version": "v5.3.2",
       "type": "dual-mode-adult-synthetic-interface-and-professional-evaluation",
-      "commit": null,
+      "commit": "b99c0bc31b208c26367e888545fe4b74c2ab8ed4",
       "fixedPath": "./v5.3.2/",
       "participants": [
         "adult-testers-only",
