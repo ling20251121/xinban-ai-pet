@@ -11,8 +11,7 @@ export interface RuntimeEnv {
   QWEN_MODEL?: string;
   QWEN_ASR_MODEL?: string;
   QWEN_TTS_MODEL?: string;
-  PARTICIPANT_HASH_PEPPER?: string;
-  TEACHER_ACCESS_KEY?: string;
+  AUTH_BOOTSTRAP_TOKEN?: string;
 }
 
 export class DatabaseUnavailableError extends Error {

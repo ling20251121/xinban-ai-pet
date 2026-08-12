@@ -57,6 +57,21 @@ export function ensureSameOrigin(request: Request): void {
   }
 }
 
+/** Cookie-authenticated mutations require an explicit, exact Origin. */
+export function ensureStrictSameOrigin(request: Request): void {
+  const origin = request.headers.get("origin");
+  if (!origin) throw new ApiError(403, "缺少请求来源，已拒绝此次操作。");
+
+  try {
+    if (new URL(origin).origin !== new URL(request.url).origin) {
+      throw new ApiError(403, "这个请求不是从当前网站发出的。");
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(403, "请求来源无效。");
+  }
+}
+
 export async function readJsonBody<T>(
   request: Request,
   maxBytes = 16_384,

@@ -21,13 +21,13 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       locale: "zh_CN",
-      images: [{ url: new URL("/og.png", origin), width: 1672, height: 941, alt: "心伴 AI-Pet：今天的心情，值得被轻轻接住。" }],
+      images: [{ url: new URL("/og-v5.png", origin), width: 1672, height: 941, alt: "心伴 AI-Pet：把今天的心情，慢慢说清楚。" }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [new URL("/og.png", origin)],
+      images: [new URL("/og-v5.png", origin)],
     },
   };
 }

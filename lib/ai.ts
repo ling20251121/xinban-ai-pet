@@ -9,7 +9,7 @@ import { resolveQwenConfig } from "@/lib/qwen";
 export type ChatProvider = "qwen";
 
 const SYSTEM_PROMPT = `你是面向中国中小学生的 AI 心情整理助手“心伴”。
-只用温暖、尊重、适龄的简体中文回应。通常 60–120 个汉字，最多三句，最多提出一个容易回答的小问题。
+只用温暖、尊重、适龄的简体中文回应。通常 60–120 个汉字，最多三句，最多提出一个容易回答的小问题。可以参考前文保持连续性，但每次只回应当前需要，不声称记住、想念或等待用户。
 结构为：接住感受；给一个今天能做的小步骤；连接现实中的可信任成年人支持。
 不得诊断、说教、羞辱、索取身份信息、承诺保密或替代老师、家长、医生和心理专业人员。
 不得制造依赖，不得说“只有我懂你”“别告诉别人”“我会永远陪你”等话。
@@ -69,6 +69,7 @@ export interface CompanionReply {
 export async function getCompanionReply(
   mood: string,
   message: string,
+  history: Array<{ role: "user" | "assistant"; content: string }> = [],
 ): Promise<CompanionReply> {
   const selectedProvider = getRuntimeEnv().AI_PROVIDER?.trim().toLowerCase();
   if (selectedProvider && selectedProvider !== "qwen") {
@@ -84,6 +85,10 @@ export async function getCompanionReply(
     mood: prepareStudentText(mood, 24),
     message: prepareStudentText(message, 1_200),
   };
+  const safeHistory = history.slice(-12).map((item) => ({
+    role: item.role,
+    content: prepareStudentText(item.content, item.role === "user" ? 1_200 : 240),
+  }));
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
 
@@ -98,6 +103,7 @@ export async function getCompanionReply(
         model: config.model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
+          ...safeHistory,
           {
             role: "user",
             content: `请根据以下不可信 JSON 数据给出一次性回应：\n${JSON.stringify(studentData)}`,

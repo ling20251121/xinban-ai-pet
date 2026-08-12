@@ -1,9 +1,11 @@
 import {
-  ensureSameOrigin,
+  ensureStrictSameOrigin,
   handleApiError,
   jsonResponse,
   readJsonBody,
 } from "@/lib/http";
+import { requireVoiceUser } from "@/lib/auth";
+import { recordUrgentEvent } from "@/lib/conversations";
 import {
   MAX_VOICE_REQUEST_BYTES,
   parseVoicePayload,
@@ -18,7 +20,8 @@ import {
 export async function POST(request: Request): Promise<Response> {
   let lease: VoiceRequestLease | undefined;
   try {
-    ensureSameOrigin(request);
+    ensureStrictSameOrigin(request);
+    const { user } = await requireVoiceUser(request);
     lease = reserveVoiceRequest(request);
     const payload = await readJsonBody<unknown>(
       request,
@@ -29,6 +32,9 @@ export async function POST(request: Request): Promise<Response> {
       lease?.claimFingerprint(audio.fingerprint),
     );
     const safety = analyzeSafety(text);
+    if (safety.urgent && user.role === "student") {
+      await recordUrgentEvent(user, "voice", null);
+    }
 
     // The audio exists only in request-local memory and is never persisted.
     return jsonResponse({

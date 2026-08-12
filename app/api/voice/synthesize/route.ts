@@ -1,8 +1,9 @@
 import {
-  ensureSameOrigin,
+  ensureStrictSameOrigin,
   handleApiError,
   readJsonBody,
 } from "@/lib/http";
+import { requireVoiceUser } from "@/lib/auth";
 import {
   parseTtsPayload,
   speechFingerprint,
@@ -16,7 +17,8 @@ import {
 export async function POST(request: Request): Promise<Response> {
   let lease: VoiceRequestLease | undefined;
   try {
-    ensureSameOrigin(request);
+    ensureStrictSameOrigin(request);
+    await requireVoiceUser(request);
     lease = reserveVoiceRequest(request);
     const payload = parseTtsPayload(await readJsonBody<unknown>(request));
     lease.claimFingerprint(`tts-${speechFingerprint(payload.text)}`);

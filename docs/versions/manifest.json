@@ -1,7 +1,7 @@
 {
   "project": "XinBan AI-Pet",
   "updatedAt": "2026-08-12",
-  "current": "v4.0.1",
+  "current": "v5.0.0",
   "versions": [
     {
       "version": "v1.0.0",
@@ -71,6 +71,30 @@
       "browserStorage": false,
       "liveModelKeyIncluded": false,
       "realStudentData": false
+    },
+    {
+      "version": "v5.0.0",
+      "type": "controlled-school-account-continuous-care-system",
+      "commit": null,
+      "fixedPath": "./v5.0.0/",
+      "authentication": "school-issued-username-password",
+      "initialTeacherSetup": "one-time-server-controlled-bootstrap",
+      "database": "D1",
+      "primaryModel": "Qwen",
+      "sessionLimits": {
+        "minutes": 15,
+        "studentTurns": 12
+      },
+      "voice": [
+        "Qwen ASR",
+        "Qwen TTS"
+      ],
+      "teacherVisibility": "class-scoped-minimum-necessary-support-queue",
+      "archivePageNetworkRequests": false,
+      "browserStorage": false,
+      "liveModelKeyIncluded": false,
+      "realStudentData": false,
+      "approvedForRealMinorPilot": false
     }
   ]
 }

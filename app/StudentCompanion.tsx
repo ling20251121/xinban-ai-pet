@@ -1,8 +1,26 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+type User = {
+  id: string;
+  role: "student" | "teacher";
+  username: string;
+  displayName: string | null;
+  classId: string | null;
+  guardianConsentVerified: boolean;
+  studentConsented: boolean;
+  mustChangePassword: boolean;
+};
 
 type MoodOption = {
   id: string;
@@ -23,9 +41,23 @@ type MoodEntry = {
   createdAt: string;
 };
 
-type CompanionState = "idle" | "mood-selected" | "saving" | "responding" | "done" | "urgent";
-type RecordingState = "idle" | "notice" | "requesting" | "recording" | "transcribing" | "review" | "error";
-type SpeechState = "idle" | "speaking" | "paused";
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  provider?: string;
+};
+
+type RecordingState =
+  | "idle"
+  | "notice"
+  | "requesting"
+  | "recording"
+  | "transcribing"
+  | "review"
+  | "error";
+
 type CloudSpeechState = "idle" | "loading" | "playing" | "paused" | "error";
 
 const moodOptions: MoodOption[] = [
@@ -37,25 +69,41 @@ const moodOptions: MoodOption[] = [
   { id: "unclear", label: "说不清", cue: "模糊", score: 0, tone: "mist" },
 ];
 
-const quickPrompts = ["今天有件小事让我开心", "学习上有点卡住", "和同学相处有点难", "我想先安静一下"];
-const recordingMimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg", "audio/mpeg", "audio/wav"];
-
 const moodFeedback: Record<string, string> = {
-  happy: "记下开心也很重要。可以留下一件想记住的小事。",
+  happy: "开心也值得被认真记下。可以留住一件想记住的小事。",
   calm: "平静也值得被看见。可以写下让你安稳的一件事。",
-  tense: "紧张常常说明有件事很在意。可以只写最卡住的一点。",
+  tense: "紧张常常说明有件事很在意。只写最卡住的一点就好。",
   sad: "难过时不用急着振作。写一句也可以，或直接找人聊聊。",
   upset: "先不用把事情全部说清楚。可以从最不舒服的一点开始。",
-  unclear: "说不清也没关系。可以只停在这里，或写下身体现在的感觉。",
+  unclear: "说不清也没关系。可以只写下身体现在的感觉。",
 };
+
+const quickPrompts = [
+  "今天有件小事让我开心",
+  "学习上有点卡住",
+  "和同学相处有点难",
+  "我想先安静一下",
+];
+
+const recordingMimeTypes = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+  "audio/mpeg",
+  "audio/wav",
+];
 
 const providerNames: Record<string, string> = {
   deepseek: "DeepSeek",
   doubao: "豆包",
   kimi: "Kimi",
   qwen: "通义千问",
-  demo: "安全示例回应",
+  "local-safety": "本地安全规则",
 };
+
+const crisisMessage =
+  "如果你现在可能伤害自己或他人，请立刻离开危险物品和危险地点，去找身边可信任的成年人。紧急危险请拨打 110 或 120。";
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -69,122 +117,250 @@ function formatDate(value: string) {
   }).format(date);
 }
 
-function csvCell(value: string | number | boolean) {
-  return `"${String(value).replaceAll('"', '""')}"`;
+function formatCountdown(seconds: number) {
+  const safe = Math.max(0, seconds);
+  return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("录音读取失败"));
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("录音读取失败"));
     reader.onerror = () => reject(new Error("录音读取失败"));
     reader.readAsDataURL(blob);
   });
 }
 
+function makeLocalMessage(
+  role: ChatMessage["role"],
+  content: string,
+  provider?: string,
+): ChatMessage {
+  return {
+    id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    role,
+    content,
+    provider,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export default function StudentCompanion() {
-  const [participantCode, setParticipantCode] = useState("");
+  const [authState, setAuthState] = useState<"loading" | "ready" | "error">("loading");
+  const [user, setUser] = useState<User | null>(null);
+  const [requiresConsent, setRequiresConsent] = useState(false);
+  const [passwordGate, setPasswordGate] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [consentError, setConsentError] = useState("");
+  const [dataRightsBusy, setDataRightsBusy] = useState(false);
+  const [dataRightsMessage, setDataRightsMessage] = useState("");
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawChecked, setWithdrawChecked] = useState(false);
+  const [withdrawBusy, setWithdrawBusy] = useState(false);
+  const [withdrawError, setWithdrawError] = useState("");
+
   const [selectedMood, setSelectedMood] = useState<MoodOption | null>(null);
   const [note, setNote] = useState("");
   const [goal, setGoal] = useState("");
   const [wantsSupport, setWantsSupport] = useState(false);
-  const [wantsAi, setWantsAi] = useState(false);
+  const [wantsAi, setWantsAi] = useState(true);
   const [entries, setEntries] = useState<MoodEntry[]>([]);
-  const [reply, setReply] = useState("");
-  const [provider, setProvider] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyBusy, setHistoryBusy] = useState(false);
+  const [phase, setPhase] = useState<"checkin" | "saved" | "chat">("checkin");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [urgent, setUrgent] = useState(false);
-  const [submitting, setSubmitting] = useState<"save" | "ai" | null>(null);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [companionState, setCompanionState] = useState<CompanionState>("idle");
+  const [submitting, setSubmitting] = useState(false);
+
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [studentTurns, setStudentTurns] = useState(0);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [chatEnded, setChatEnded] = useState(false);
+  const [provider, setProvider] = useState("");
+  const [clock, setClock] = useState(0);
+  const [chatStatus, setChatStatus] = useState("");
+
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceMessage, setVoiceMessage] = useState("");
   const [voiceSupported, setVoiceSupported] = useState<boolean | null>(null);
-  const [speechState, setSpeechState] = useState<SpeechState>("idle");
-  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  const [voiceTarget, setVoiceTarget] = useState<"note" | "chat">("note");
+
   const [cloudSpeechState, setCloudSpeechState] = useState<CloudSpeechState>("idle");
   const [cloudSpeechMessage, setCloudSpeechMessage] = useState("");
-  const replyRef = useRef<HTMLElement>(null);
+  const [activeSpeechId, setActiveSpeechId] = useState<string | null>(null);
+  const [deviceSpeechId, setDeviceSpeechId] = useState<string | null>(null);
+  const [deviceSpeechSupported, setDeviceSpeechSupported] = useState<boolean | null>(null);
+
+  const chatLogRef = useRef<HTMLDivElement>(null);
+  const emergencyRef = useRef<HTMLElement>(null);
+  const withdrawTitleRef = useRef<HTMLHeadingElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<number | null>(null);
   const recordingLimitRef = useRef<number | null>(null);
   const stopReasonRef = useRef<"transcribe" | "cancel">("transcribe");
-  const voiceRequestRef = useRef(0);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
-  const speechUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const voiceRequestRef = useRef(0);
   const cloudAudioRef = useRef<HTMLAudioElement | null>(null);
   const cloudAudioUrlRef = useRef<string | null>(null);
   const cloudSpeechAbortRef = useRef<AbortController | null>(null);
   const cloudSpeechRequestRef = useRef(0);
 
-  const validCode = /^[A-Za-z0-9_-]{4,20}$/.test(participantCode.trim());
-  const remaining = 600 - note.length;
+  const noteRemaining = 600 - note.length;
+  const chatRemaining = 300 - chatDraft.length;
+  const secondsRemaining = expiresAt
+    ? clock === 0
+      ? 15 * 60
+      : Math.max(0, Math.ceil((new Date(expiresAt).getTime() - clock) / 1000))
+    : 15 * 60;
+  const turnsRemaining = Math.max(0, 12 - studentTurns);
+  const conversationUnavailable = chatEnded || secondsRemaining <= 0 || turnsRemaining <= 0;
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      const canRecord = typeof navigator.mediaDevices?.getUserMedia === "function"
-        && typeof window.MediaRecorder === "function"
-        && recordingMimeTypes.some((mimeType) => MediaRecorder.isTypeSupported(mimeType));
-      setVoiceSupported(canRecord);
-      setSpeechSupported(typeof window.speechSynthesis !== "undefined" && typeof window.SpeechSynthesisUtterance === "function");
-    });
-    return () => window.cancelAnimationFrame(frame);
+  const stopAudio = useCallback((message = "") => {
+    cloudSpeechRequestRef.current += 1;
+    cloudSpeechAbortRef.current?.abort();
+    cloudSpeechAbortRef.current = null;
+    const audio = cloudAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      cloudAudioRef.current = null;
+    }
+    if (cloudAudioUrlRef.current) {
+      URL.revokeObjectURL(cloudAudioUrlRef.current);
+      cloudAudioUrlRef.current = null;
+    }
+    window.speechSynthesis?.cancel();
+    setDeviceSpeechId(null);
+    setActiveSpeechId(null);
+    setCloudSpeechState("idle");
+    setCloudSpeechMessage(message);
   }, []);
 
-  useEffect(() => {
-    if (!reply && !urgent) return;
-    const frame = window.requestAnimationFrame(() => {
-      if (urgent) {
-        replyRef.current?.focus();
+  const loadHistory = useCallback(async () => {
+    setHistoryBusy(true);
+    try {
+      const response = await fetch("/api/moods?limit=14", { cache: "no-store" });
+      if (response.status === 401) {
+        window.location.replace("/login?next=student");
         return;
       }
-      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      replyRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+      const data = (await response.json()) as { entries?: MoodEntry[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法读取记录");
+      setEntries(data.entries || []);
+    } catch (historyError) {
+      setError(historyError instanceof Error ? historyError.message : "暂时无法读取记录");
+    } finally {
+      setHistoryBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        const data = (await response.json()) as {
+          authenticated?: boolean;
+          user?: User;
+          requiresStudentConsent?: boolean;
+        };
+        if (!active) return;
+        if (!data.authenticated || !data.user) {
+          window.location.replace("/login?next=student");
+          return;
+        }
+        if (data.user.role === "teacher") {
+          window.location.replace("/teacher");
+          return;
+        }
+        setUser(data.user);
+        setPasswordGate(Boolean(data.user.mustChangePassword));
+        setRequiresConsent(
+          !data.user.guardianConsentVerified || Boolean(data.requiresStudentConsent),
+        );
+        setAuthState("ready");
+        if (!data.requiresStudentConsent && !data.user.mustChangePassword) void loadHistory();
+      } catch {
+        if (active) setAuthState("error");
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [loadHistory]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const canRecord =
+        typeof navigator.mediaDevices?.getUserMedia === "function" &&
+        typeof window.MediaRecorder === "function" &&
+        recordingMimeTypes.some((mimeType) => MediaRecorder.isTypeSupported(mimeType));
+      setVoiceSupported(canRecord);
+      setDeviceSpeechSupported(
+        "speechSynthesis" in window && "SpeechSynthesisUtterance" in window,
+      );
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [reply, urgent]);
-
-  const stopCloudSpeech = useCallback((nextMessage = "") => {
-    cloudSpeechRequestRef.current += 1;
-    cloudSpeechAbortRef.current?.abort();
-    cloudSpeechAbortRef.current = null;
-
-    const audio = cloudAudioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      cloudAudioRef.current = null;
-    }
-    if (cloudAudioUrlRef.current) {
-      URL.revokeObjectURL(cloudAudioUrlRef.current);
-      cloudAudioUrlRef.current = null;
-    }
-    setCloudSpeechState("idle");
-    setCloudSpeechMessage(nextMessage);
   }, []);
 
-  const clearCloudSpeechResources = useCallback(() => {
-    cloudSpeechRequestRef.current += 1;
-    cloudSpeechAbortRef.current?.abort();
-    cloudSpeechAbortRef.current = null;
-    const audio = cloudAudioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.removeAttribute("src");
-      audio.load();
-      cloudAudioRef.current = null;
-    }
-    if (cloudAudioUrlRef.current) {
-      URL.revokeObjectURL(cloudAudioUrlRef.current);
-      cloudAudioUrlRef.current = null;
-    }
-  }, []);
+  useEffect(() => {
+    if (!expiresAt || chatEnded) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [expiresAt, chatEnded]);
+
+  useEffect(() => {
+    if (phase !== "chat") return;
+    const frame = window.requestAnimationFrame(() => {
+      chatLogRef.current?.scrollTo({
+        top: chatLogRef.current.scrollHeight,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [messages, chatBusy, phase]);
+
+  useEffect(() => {
+    if (!urgent) return;
+    const frame = window.requestAnimationFrame(() => emergencyRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [urgent]);
+
+  useEffect(() => {
+    if (!withdrawOpen) return;
+    const frame = window.requestAnimationFrame(() => withdrawTitleRef.current?.focus());
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape" && !withdrawBusy) {
+        setWithdrawOpen(false);
+        setWithdrawChecked(false);
+        setWithdrawError("");
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [withdrawOpen, withdrawBusy]);
 
   useEffect(() => () => {
     voiceRequestRef.current += 1;
@@ -194,71 +370,238 @@ export default function StudentCompanion() {
     transcriptionAbortRef.current?.abort();
     if (mediaRecorderRef.current?.state !== "inactive") mediaRecorderRef.current?.stop();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-    window.speechSynthesis?.cancel();
     cloudSpeechRequestRef.current += 1;
     cloudSpeechAbortRef.current?.abort();
     cloudAudioRef.current?.pause();
-    cloudAudioRef.current?.removeAttribute("src");
     if (cloudAudioUrlRef.current) URL.revokeObjectURL(cloudAudioUrlRef.current);
+    window.speechSynthesis?.cancel();
   }, []);
 
-  const loadHistory = useCallback(async (code = participantCode.trim()) => {
-    if (!/^[A-Za-z0-9_-]{4,20}$/.test(code)) {
-      setError("请输入学校发放的 4–20 位匿名编号（字母、数字、- 或 _）。");
+  async function acceptConsent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user?.guardianConsentVerified || !consentChecked) return;
+    setConsentBusy(true);
+    setConsentError("");
+    try {
+      const response = await fetch("/api/auth/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepted: true }),
+      });
+      const data = (await response.json()) as { user?: User; error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法保存同意状态");
+      setUser(data.user || { ...user, studentConsented: true });
+      setRequiresConsent(false);
+      void loadHistory();
+    } catch (acceptError) {
+      setConsentError(
+        acceptError instanceof Error ? acceptError.message : "暂时无法保存同意状态",
+      );
+    } finally {
+      setConsentBusy(false);
+    }
+  }
+
+  async function changeInitialPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPassword.length < 12) {
+      setPasswordError("新密码至少需要 12 个字符。");
       return;
     }
-
-    setLoadingHistory(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/moods?participantCode=${encodeURIComponent(code)}`, {
-        cache: "no-store",
-      });
-      const data = (await response.json()) as { entries?: MoodEntry[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "暂时无法读取记录");
-      setEntries(data.entries || []);
-      setHistoryOpen(true);
-    } catch (historyError) {
-      setError(historyError instanceof Error ? historyError.message : "暂时无法读取记录");
-    } finally {
-      setLoadingHistory(false);
+    if (newPassword !== confirmPassword) {
+      setPasswordError("两次输入的新密码不一致。");
+      return;
     }
-  }, [participantCode]);
+    setPasswordBusy(true);
+    setPasswordError("");
+    try {
+      const response = await fetch("/api/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = (await response.json()) as { user?: User; error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法修改密码");
+      setUser(data.user || (user ? { ...user, mustChangePassword: false } : user));
+      setPasswordGate(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      if (!requiresConsent) void loadHistory();
+    } catch (passwordChangeError) {
+      setPasswordError(
+        passwordChangeError instanceof Error ? passwordChangeError.message : "暂时无法修改密码",
+      );
+    } finally {
+      setPasswordBusy(false);
+    }
+  }
 
-  async function submitEntry(event: FormEvent<HTMLFormElement>) {
+  async function exportExistingData() {
+    if (dataRightsBusy) return;
+    setDataRightsBusy(true);
+    setDataRightsMessage("");
+    try {
+      const [moodsResponse, chatsResponse] = await Promise.all([
+        fetch("/api/moods?limit=100", { cache: "no-store" }),
+        fetch("/api/chat/export", { cache: "no-store" }),
+      ]);
+      const moods = (await moodsResponse.json()) as { entries?: MoodEntry[]; error?: string };
+      const chats = (await chatsResponse.json()) as { error?: string } & Record<string, unknown>;
+      if (!moodsResponse.ok || !chatsResponse.ok) {
+        throw new Error(moods.error || chats.error || "暂时无法导出已有数据");
+      }
+      const blob = new Blob([
+        JSON.stringify(
+          {
+            exportedAt: new Date().toISOString(),
+            schoolUsername: user?.username,
+            moodEntries: moods.entries || [],
+            chatArchive: chats,
+          },
+          null,
+          2,
+        ),
+      ], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `xinban-my-data-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setDataRightsMessage("已生成本人数据文件。请将它保存在只有你能访问的位置。");
+    } catch (exportError) {
+      setDataRightsMessage(
+        exportError instanceof Error ? exportError.message : "暂时无法导出已有数据",
+      );
+    } finally {
+      setDataRightsBusy(false);
+    }
+  }
+
+  async function deleteExistingData() {
+    if (dataRightsBusy) return;
+    const confirmed = window.confirm(
+      "这会删除你的心情记录和 AI 对话原文，且无法恢复。为了学校安全处置留痕，不含原文的结构化安全事件可能按学校批准期限保留。确定继续吗？",
+    );
+    if (!confirmed) return;
+    setDataRightsBusy(true);
+    setDataRightsMessage("");
+    try {
+      const chatsResponse = await fetch("/api/chat", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const chats = (await chatsResponse.json()) as { error?: string };
+      if (!chatsResponse.ok) throw new Error(chats.error || "暂时无法删除 AI 对话");
+
+      const moodsResponse = await fetch("/api/moods", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const moods = (await moodsResponse.json()) as { error?: string };
+      if (!moodsResponse.ok) {
+        throw new Error(
+          moods.error || "AI 对话已删除，但心情记录暂时未能删除，请稍后再试",
+        );
+      }
+      setEntries([]);
+      setDataRightsMessage(
+        "已删除你的心情记录和 AI 对话原文。不含原文的结构化安全事件可能按学校批准期限保留。",
+      );
+    } catch (deleteError) {
+      setDataRightsMessage(
+        deleteError instanceof Error ? deleteError.message : "暂时无法删除已有记录",
+      );
+    } finally {
+      setDataRightsBusy(false);
+    }
+  }
+
+  async function logout() {
+    stopAudio();
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.location.replace("/login");
+  }
+
+  function closeWithdrawDialog() {
+    if (withdrawBusy) return;
+    setWithdrawOpen(false);
+    setWithdrawChecked(false);
+    setWithdrawError("");
+  }
+
+  async function withdrawConsent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const withAi = wantsAi;
-    let recordSaved = false;
-    clearCloudSpeechResources();
-    setCloudSpeechState("idle");
-    setCloudSpeechMessage("");
+    if (!withdrawChecked || withdrawBusy) return;
+    setWithdrawBusy(true);
+    setWithdrawError("");
+
+    // Stop every user-initiated media path before consent is revoked. The
+    // server clears the session cookie on success and rejects future writes.
+    cancelRecording();
+    stopAudio();
+    setChatEnded(true);
+
+    try {
+      const response = await fetch("/api/auth/consent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accepted: false }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "暂时无法撤回同意，请稍后再试。 ");
+      }
+      window.location.replace("/login?consent=withdrawn");
+    } catch (withdrawConsentError) {
+      setWithdrawError(
+        withdrawConsentError instanceof Error
+          ? withdrawConsentError.message
+          : "暂时无法撤回同意，请稍后再试。",
+      );
+      setWithdrawBusy(false);
+    }
+  }
+
+  function resetCheckin() {
+    stopAudio();
+    setSelectedMood(null);
+    setNote("");
+    setGoal("");
+    setWantsSupport(false);
+    setWantsAi(true);
     setError("");
     setNotice("");
-    setReply("");
-    setProvider("");
     setUrgent(false);
-    window.speechSynthesis?.cancel();
-    setSpeechState("idle");
+    setPhase("checkin");
+    setConversationId(null);
+    setMessages([]);
+    setChatDraft("");
+    setStudentTurns(0);
+    setExpiresAt(null);
+    setChatEnded(false);
+    setChatStatus("");
+  }
 
-    const code = participantCode.trim();
-    if (!validCode) {
-      setError("请先输入学校发放的 4–20 位匿名编号。");
-      return;
-    }
+  async function saveCheckin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!selectedMood) {
-      setError("请选一个最接近的心情，也可以选择“说不清”。");
+      setError("先选一个最接近此刻的心情。");
       return;
     }
-
-    setSubmitting(withAi ? "ai" : "save");
-    setCompanionState("saving");
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    stopAudio();
     try {
       const moodResponse = await fetch("/api/moods", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          participantCode: code,
-          mood: selectedMood.label,
+          mood: selectedMood.id,
           moodScore: selectedMood.score,
           note: note.trim(),
           goal: goal.trim(),
@@ -271,67 +614,189 @@ export default function StudentCompanion() {
         message?: string;
         error?: string;
       };
-      if (!moodResponse.ok) throw new Error(moodData.error || "记录没有保存成功，请重试");
-
-      recordSaved = true;
-      setNotice(withAi ? "今天的记录已保存，正在准备一条可选的 AI 建议。" : "今天的记录已保存。你可以随时查看、导出或删除它。");
-      if (moodData.entry) setEntries((current) => [moodData.entry!, ...current.filter((item) => item.id !== moodData.entry!.id)]);
+      if (moodResponse.status === 401) {
+        window.location.replace("/login?next=student");
+        return;
+      }
+      if (!moodResponse.ok) throw new Error(moodData.error || "这次记录没有保存成功");
+      if (moodData.entry) setEntries((current) => [moodData.entry!, ...current]);
 
       if (moodData.urgent) {
         setUrgent(true);
-        setReply(moodData.message || "请现在联系身边可信任的成年人。");
-        setCompanionState("urgent");
-      } else if (withAi) {
-        setCompanionState("responding");
-        const chatMessage = note.trim() || `我今天的心情是${selectedMood.label}。`;
-        const chatResponse = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ participantCode: code, mood: selectedMood.label, message: chatMessage }),
-        });
-        const chatData = (await chatResponse.json()) as {
-          reply?: string;
-          urgent?: boolean;
-          provider?: string;
-          error?: string;
-        };
-        if (!chatResponse.ok) throw new Error(chatData.error || "AI 回应暂时不可用，但你的记录已经保存");
-        setReply(chatData.reply || "谢谢你记录此刻的感受。现在可以先选一个很小、很容易完成的下一步。");
-        setProvider(chatData.provider || "demo");
-        setUrgent(Boolean(chatData.urgent));
-        setCompanionState(chatData.urgent ? "urgent" : "done");
-        setNotice("记录已保存。下面是一条可选的 AI 建议，你可以按自己的情况决定是否采用。");
-      } else {
-        setCompanionState("done");
+        setChatStatus(moodData.message || crisisMessage);
+        setPhase("saved");
+        return;
       }
 
-      setNote("");
-      setGoal("");
-      setWantsSupport(false);
-      setWantsAi(false);
-    } catch (submitError) {
-      if (recordSaved) {
-        setError("记录已经保存，但 AI 回应暂时不可用。你仍然可以查看记录或找现实中的人聊聊。");
-        setCompanionState("done");
-      } else {
-        setError(submitError instanceof Error ? submitError.message : "暂时无法提交，请稍后重试");
-        setCompanionState(selectedMood ? "mood-selected" : "idle");
+      if (!wantsAi) {
+        setPhase("saved");
+        setNotice(
+          wantsSupport
+            ? "心情已保存，也已记下你希望老师联系。"
+            : "心情已保存。你可以随时退出，不需要继续对话。",
+        );
+        return;
       }
+
+      const firstText = [
+        note.trim() || `今天我感觉${selectedMood.label}。`,
+        goal.trim() ? `我想做的小事：${goal.trim()}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const userMessage = makeLocalMessage("user", firstText);
+      setMessages([userMessage]);
+      setPhase("chat");
+      setChatBusy(true);
+
+      const chatResponse = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mood: selectedMood.id, message: firstText }),
+      });
+      const chatData = (await chatResponse.json()) as {
+        reply?: string;
+        urgent?: boolean;
+        provider?: string;
+        conversationId?: string;
+        studentTurns?: number;
+        expiresAt?: string;
+        ended?: boolean;
+        error?: string;
+      };
+      if (!chatResponse.ok) {
+        setPhase("saved");
+        throw new Error(
+          chatResponse.status === 503
+            ? "心情已保存，但学校暂未配置 AI 对话。你仍可以找真人聊聊。"
+            : chatData.error || "心情已保存，但 AI 对话暂时无法开始",
+        );
+      }
+      const reply = chatData.reply || "谢谢你告诉我。我们可以一起想一个很小的下一步。";
+      setProvider(chatData.provider || "");
+      setConversationId(chatData.conversationId || null);
+      setStudentTurns(chatData.studentTurns ?? 1);
+      setExpiresAt(chatData.expiresAt || new Date(Date.now() + 15 * 60_000).toISOString());
+      setClock(Date.now());
+      setChatEnded(Boolean(chatData.ended));
+      setMessages([userMessage, makeLocalMessage("assistant", reply, chatData.provider)]);
+      if (chatData.urgent) {
+        setUrgent(true);
+        setChatStatus(reply || crisisMessage);
+        setChatEnded(true);
+      } else {
+        setChatStatus("小伴已经回复。AI 生成内容可能有误，你可以采用、修改或忽略。 ");
+      }
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "暂时无法完成这次记录");
     } finally {
-      setSubmitting(null);
+      setSubmitting(false);
+      setChatBusy(false);
     }
   }
 
-  function chooseMood(mood: MoodOption) {
-    setSelectedMood(mood);
-    setCompanionState("mood-selected");
+  async function sendChat(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const content = chatDraft.trim();
+    if (!content || !conversationId || chatBusy || conversationUnavailable) return;
+    stopAudio();
+    const userMessage = makeLocalMessage("user", content);
+    setMessages((current) => [...current, userMessage]);
+    setChatDraft("");
+    setChatBusy(true);
     setError("");
-    setNotice("");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mood: selectedMood?.id || "unclear",
+          message: content,
+          conversationId,
+        }),
+      });
+      const data = (await response.json()) as {
+        reply?: string;
+        urgent?: boolean;
+        provider?: string;
+        studentTurns?: number;
+        expiresAt?: string;
+        ended?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        if (response.status === 409) setChatEnded(true);
+        throw new Error(data.error || "这句话没有发送成功，请稍后再试");
+      }
+      const reply = data.reply || "我听到了。要不要把现在最需要的一件事说得更具体一点？";
+      setMessages((current) => [
+        ...current,
+        makeLocalMessage("assistant", reply, data.provider),
+      ]);
+      setProvider(data.provider || provider);
+      setStudentTurns(data.studentTurns ?? studentTurns + 1);
+      if (data.expiresAt) setExpiresAt(data.expiresAt);
+      setClock(Date.now());
+      if (data.ended) setChatEnded(true);
+      setChatStatus(data.urgent ? reply : "小伴已经回复。AI 生成内容可能有误。");
+      if (data.urgent) {
+        setUrgent(true);
+        setChatEnded(true);
+      }
+    } catch (chatError) {
+      setError(chatError instanceof Error ? chatError.message : "这句话没有发送成功");
+    } finally {
+      setChatBusy(false);
+    }
   }
 
-  function appendPrompt(prompt: string) {
-    setNote((current) => current.trim() ? `${current.trimEnd()}\n${prompt}`.slice(0, 600) : prompt);
-    if (selectedMood) setCompanionState("mood-selected");
+  function handleChatKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void sendChat();
+    }
+  }
+
+  function finishConversation() {
+    stopAudio();
+    setChatEnded(true);
+    setChatStatus("你已结束本次会话。内容仍保留在你的账号中，直到你主动删除。 ");
+  }
+
+  async function copyConversation() {
+    const text = messages
+      .map((message) => `${message.role === "assistant" ? "小伴（AI）" : "我"}：${message.content}`)
+      .join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setChatStatus("会话已复制到剪贴板。请只分享给你信任的人。 ");
+    } catch {
+      setChatStatus("浏览器没有允许复制。你可以手动选择文字。 ");
+    }
+  }
+
+  async function deleteConversation() {
+    if (!conversationId || !window.confirm("删除后无法恢复这次 AI 会话。确定删除吗？")) return;
+    stopAudio();
+    setChatBusy(true);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法删除会话");
+      setConversationId(null);
+      setMessages([]);
+      setChatEnded(true);
+      setPhase("saved");
+      setNotice("这次 AI 会话已经删除。心情记录仍保留在你的账号中。 ");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "暂时无法删除会话");
+    } finally {
+      setChatBusy(false);
+    }
   }
 
   function clearRecordingTimers() {
@@ -341,743 +806,729 @@ export default function StudentCompanion() {
     recordingLimitRef.current = null;
   }
 
-  function releaseMicrophone() {
+  function closeMediaStream() {
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
   }
 
   async function transcribeRecording(blob: Blob, mimeType: string) {
-    if (!blob.size) {
-      setRecordingState("error");
-      setVoiceMessage("没有收到可转写的声音。音频未保存，请重试或改用文字输入。");
-      return;
-    }
     if (blob.size > 2_500_000) {
-      audioChunksRef.current = [];
       setRecordingState("error");
-      setVoiceMessage("录音文件超过 2.5 MB，未上传也未保存。请缩短录音或改用文字输入。");
+      setVoiceMessage("录音文件超过 2.5MB，请缩短录音或改用文字输入。");
       return;
     }
-
-    setRecordingState("transcribing");
-    setVoiceMessage("正在转成文字；完成前不会保存这段音频。");
+    const requestId = ++voiceRequestRef.current;
     const controller = new AbortController();
     transcriptionAbortRef.current = controller;
-
+    setRecordingState("transcribing");
+    setVoiceMessage("音频仅用于本次转写，不保存录音。");
     try {
       const dataUrl = await blobToDataUrl(blob);
       const response = await fetch("/api/voice/transcribe", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dataUrl, mimeType }),
         signal: controller.signal,
       });
       const data = (await response.json()) as {
         text?: string;
-        transcript?: string;
         urgent?: boolean;
         message?: string;
         error?: string;
       };
       if (!response.ok) {
-        if (response.status === 503) {
-          throw new Error("语音转写服务暂未配置。音频没有保存，请继续使用文字输入。");
-        }
-        throw new Error(data.error || "语音暂时无法转成文字。音频没有保存。");
+        throw new Error(
+          response.status === 503
+            ? "学校暂未配置语音转写，请改用文字输入。"
+            : data.error || "语音转写没有完成",
+        );
       }
-
-      const transcript = (data.text || data.transcript || "").trim();
-      if (!transcript) throw new Error("没有识别到清楚的文字。音频没有保存，可以重试或直接输入。");
-      setNote((current) => [current.trim(), transcript].filter(Boolean).join("\n").slice(0, 600));
-      setRecordingState("review");
-      if (data.urgent) {
-        clearCloudSpeechResources();
-        setCloudSpeechState("idle");
-        setCloudSpeechMessage("");
-        stopSpeech();
-        setUrgent(true);
-        setProvider("");
-        setReply(data.message || "请现在联系身边可信任的成年人。若你或别人正面临立即危险，请拨打 110 或 120。");
-        setCompanionState("urgent");
-        setVoiceMessage("已转成可编辑文字，音频已丢弃。内容中出现了需要立刻让真人确认的安全信号；文字尚未自动保存，请现在先联系身边可信任的大人。");
+      if (requestId !== voiceRequestRef.current) return;
+      const text = data.text?.trim() || "";
+      if (!text) throw new Error("没有识别到清晰文字，请改用文字输入。 ");
+      if (voiceTarget === "chat") {
+        setChatDraft((current) => `${current}${current.trim() ? " " : ""}${text}`.slice(0, 300));
       } else {
-        setVoiceMessage("已转成可编辑文字，音频已丢弃。请检查内容，再决定是否保存。");
-        if (selectedMood) setCompanionState("mood-selected");
+        setNote((current) => `${current}${current.trim() ? " " : ""}${text}`.slice(0, 600));
+      }
+      setRecordingState("review");
+      setVoiceMessage("已转成文字，请检查并修改后再保存。录音已释放。 ");
+      if (data.urgent) {
+        setUrgent(true);
+        setChatStatus(data.message || crisisMessage);
+        if (voiceTarget === "chat") setChatEnded(true);
       }
     } catch (voiceError) {
-      if (voiceError instanceof DOMException && voiceError.name === "AbortError") return;
+      if (controller.signal.aborted) return;
       setRecordingState("error");
-      setVoiceMessage(voiceError instanceof Error ? voiceError.message : "语音转写失败。音频没有保存，请改用文字输入。");
+      setVoiceMessage(
+        voiceError instanceof Error ? voiceError.message : "语音转写没有完成，请改用文字输入。",
+      );
     } finally {
-      audioChunksRef.current = [];
       if (transcriptionAbortRef.current === controller) transcriptionAbortRef.current = null;
     }
   }
 
-  async function startVoiceRecording() {
-    setVoiceMessage("");
-    if (!voiceSupported || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+  async function startRecording() {
+    if (!voiceSupported) {
       setRecordingState("error");
-      setVoiceMessage("此设备暂不支持安全录音，请继续使用文字输入。");
+      setVoiceMessage("当前浏览器不支持安全录音格式，请改用文字输入。 ");
       return;
     }
-
-    const requestId = ++voiceRequestRef.current;
     setRecordingState("requesting");
+    setVoiceMessage("正在请求麦克风权限……");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (requestId !== voiceRequestRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      mediaStreamRef.current = stream;
-      const mimeType = recordingMimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+      const mimeType = recordingMimeTypes.find((item) => MediaRecorder.isTypeSupported(item));
       if (!mimeType) {
-        releaseMicrophone();
-        setRecordingState("error");
-        setVoiceMessage("此浏览器不能生成学校转写服务支持的录音格式。音频未保存，请继续使用文字输入。");
-        return;
+        stream.getTracks().forEach((track) => track.stop());
+        throw new Error("当前浏览器不支持可用录音格式，请改用文字输入。 ");
       }
       const recorder = new MediaRecorder(stream, { mimeType });
+      mediaStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
       stopReasonRef.current = "transcribe";
-
-      recorder.addEventListener("dataavailable", (event) => {
+      recorder.ondataavailable = (event) => {
         if (event.data.size) audioChunksRef.current.push(event.data);
-      });
-      recorder.addEventListener("error", () => {
+      };
+      recorder.onstop = () => {
         clearRecordingTimers();
-        releaseMicrophone();
+        closeMediaStream();
+        const shouldTranscribe = stopReasonRef.current === "transcribe";
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
         audioChunksRef.current = [];
-        setRecordingState("error");
-        setVoiceMessage("录音出现问题，音频没有保存。请重试或改用文字输入。");
-      });
-      recorder.addEventListener("stop", () => {
-        clearRecordingTimers();
-        releaseMicrophone();
-        mediaRecorderRef.current = null;
-        const chunks = audioChunksRef.current;
-        const resolvedMime = recorder.mimeType || chunks[0]?.type || "audio/webm";
-        const blob = new Blob(chunks, { type: resolvedMime });
-        if (stopReasonRef.current === "cancel") {
-          audioChunksRef.current = [];
-          setRecordingState("idle");
-          setVoiceMessage("已取消录音，音频没有保存。");
-          return;
-        }
-        void transcribeRecording(blob, resolvedMime);
-      });
-
+        if (shouldTranscribe && blob.size) void transcribeRecording(blob, recorder.mimeType);
+        else setRecordingState("idle");
+      };
       recorder.start(250);
       setRecordingSeconds(0);
       setRecordingState("recording");
-      setVoiceMessage("正在录音，最多 30 秒。可以随时停止或取消。");
-      recordingTimerRef.current = window.setInterval(() => {
-        setRecordingSeconds((current) => Math.min(current + 1, 30));
-      }, 1000);
+      setVoiceMessage("正在录音。说完后点“停止并转成文字”。 ");
+      recordingTimerRef.current = window.setInterval(
+        () => setRecordingSeconds((current) => Math.min(30, current + 1)),
+        1000,
+      );
       recordingLimitRef.current = window.setTimeout(() => {
-        if (recorder.state !== "inactive") {
+        if (recorder.state === "recording") {
           stopReasonRef.current = "transcribe";
           recorder.stop();
         }
       }, 30_000);
-    } catch (permissionError) {
-      if (requestId !== voiceRequestRef.current) return;
-      clearRecordingTimers();
-      releaseMicrophone();
+    } catch (recordError) {
+      closeMediaStream();
       setRecordingState("error");
-      setVoiceMessage(permissionError instanceof DOMException && permissionError.name === "NotAllowedError"
-        ? "没有获得麦克风权限。你可以继续打字，或在浏览器设置中稍后开启。"
-        : "暂时无法启动麦克风，请继续使用文字输入。");
+      setVoiceMessage(
+        recordError instanceof Error
+          ? recordError.message
+          : "没有获得麦克风权限，请改用文字输入。",
+      );
     }
   }
 
-  function stopVoiceRecording() {
+  function stopRecording() {
     if (mediaRecorderRef.current?.state === "recording") {
       stopReasonRef.current = "transcribe";
       mediaRecorderRef.current.stop();
     }
   }
 
-  function cancelVoiceRecording() {
+  function cancelRecording() {
     voiceRequestRef.current += 1;
-    stopReasonRef.current = "cancel";
     transcriptionAbortRef.current?.abort();
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-      return;
-    }
+    stopReasonRef.current = "cancel";
     clearRecordingTimers();
-    releaseMicrophone();
-    audioChunksRef.current = [];
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    closeMediaStream();
     setRecordingState("idle");
-    setVoiceMessage("已取消，音频没有保存。");
+    setVoiceMessage("");
   }
 
-  async function toggleCloudSpeech() {
-    if (!reply || urgent) return;
-
-    if (cloudSpeechState === "playing") {
-      cloudAudioRef.current?.pause();
-      setCloudSpeechState("paused");
-      setCloudSpeechMessage("Qwen 云端朗读已暂停。");
-      return;
-    }
-    if (cloudSpeechState === "paused" && cloudAudioRef.current) {
-      try {
-        await cloudAudioRef.current.play();
+  async function speakWithCloud(message: ChatMessage) {
+    if (urgent || message.role !== "assistant") return;
+    const currentAudio = cloudAudioRef.current;
+    if (activeSpeechId === message.id && currentAudio) {
+      if (cloudSpeechState === "playing") {
+        currentAudio.pause();
+        setCloudSpeechState("paused");
+      } else if (cloudSpeechState === "paused") {
+        await currentAudio.play();
         setCloudSpeechState("playing");
-        setCloudSpeechMessage("正在使用 Qwen 语音朗读。音频仅用于本次播放。");
-      } catch {
-        stopCloudSpeech("暂时无法继续播放。可以使用设备朗读或直接阅读文字。");
-        setCloudSpeechState("error");
       }
       return;
     }
 
-    stopCloudSpeech();
-    stopSpeech();
-    const requestId = cloudSpeechRequestRef.current;
+    stopAudio();
+    setActiveSpeechId(message.id);
+    setCloudSpeechState("loading");
+    setCloudSpeechMessage("正在生成 Qwen 语音……");
+    const requestId = ++cloudSpeechRequestRef.current;
     const controller = new AbortController();
     cloudSpeechAbortRef.current = controller;
-    setCloudSpeechState("loading");
-    setCloudSpeechMessage("正在准备 Qwen 云端语音…");
-
     try {
       const response = await fetch("/api/voice/synthesize", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: reply, userInitiated: true }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: message.content, userInitiated: true }),
         signal: controller.signal,
-        cache: "no-store",
-        credentials: "same-origin",
       });
-
       if (!response.ok) {
-        let serverMessage = "";
-        try {
-          const data = (await response.json()) as { error?: string };
-          serverMessage = data.error || "";
-        } catch {
-          serverMessage = "";
-        }
-        if (response.status === 503) {
-          throw new Error("云端朗读未配置，可使用设备朗读/直接阅读");
-        }
-        throw new Error(serverMessage || "云端朗读暂时不可用，可使用设备朗读或直接阅读文字。");
+        const data = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(
+          response.status === 503
+            ? "云端朗读未配置，可使用设备朗读或直接阅读。"
+            : data.error || "云端朗读暂时不可用",
+        );
       }
-
-      const audioBlob = await response.blob();
-      if (requestId !== cloudSpeechRequestRef.current || controller.signal.aborted) return;
-      if (!audioBlob.size) throw new Error("云端朗读没有返回音频，可使用设备朗读或直接阅读文字。");
-
-      const audioUrl = URL.createObjectURL(audioBlob);
-      cloudAudioUrlRef.current = audioUrl;
-      const audio = new Audio(audioUrl);
+      const blob = await response.blob();
+      if (requestId !== cloudSpeechRequestRef.current) return;
+      const url = URL.createObjectURL(blob);
+      cloudAudioUrlRef.current = url;
+      const audio = new Audio(url);
       cloudAudioRef.current = audio;
-      audio.onended = () => stopCloudSpeech("Qwen 云端朗读已完成。");
+      audio.onended = () => stopAudio("朗读已结束。 ");
       audio.onerror = () => {
-        stopCloudSpeech("云端音频无法播放，可使用设备朗读或直接阅读文字。");
+        stopAudio();
         setCloudSpeechState("error");
+        setCloudSpeechMessage("音频无法播放，可使用设备朗读或直接阅读。 ");
       };
       await audio.play();
-      if (requestId !== cloudSpeechRequestRef.current) return;
       setCloudSpeechState("playing");
-      setCloudSpeechMessage("正在使用 Qwen 语音朗读。音频仅用于本次播放。");
-    } catch (cloudSpeechError) {
-      if (cloudSpeechError instanceof DOMException && cloudSpeechError.name === "AbortError") return;
-      const message = cloudSpeechError instanceof Error
-        ? cloudSpeechError.message
-        : "云端朗读暂时不可用，可使用设备朗读或直接阅读文字。";
-      stopCloudSpeech(message);
+      setCloudSpeechMessage("正在使用 Qwen 语音朗读。 ");
+    } catch (speechError) {
+      if (controller.signal.aborted) return;
+      stopAudio();
+      setActiveSpeechId(message.id);
       setCloudSpeechState("error");
-    } finally {
-      if (requestId === cloudSpeechRequestRef.current) cloudSpeechAbortRef.current = null;
+      setCloudSpeechMessage(
+        speechError instanceof Error ? speechError.message : "云端朗读暂时不可用。",
+      );
     }
   }
 
-  function toggleSpeech() {
-    if (!speechSupported || !reply || urgent) return;
-    if (speechState === "speaking") {
-      window.speechSynthesis.pause();
-      setSpeechState("paused");
-      return;
-    }
-    if (speechState === "paused") {
-      window.speechSynthesis.resume();
-      setSpeechState("speaking");
-      return;
-    }
-
+  function speakWithDevice(message: ChatMessage) {
+    if (!deviceSpeechSupported || urgent) return;
     window.speechSynthesis.cancel();
-    stopCloudSpeech();
-    const utterance = new SpeechSynthesisUtterance(reply);
-    const chineseVoice = window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("zh"));
-    if (chineseVoice) utterance.voice = chineseVoice;
+    if (deviceSpeechId === message.id) {
+      setDeviceSpeechId(null);
+      return;
+    }
+    stopAudio();
+    const utterance = new SpeechSynthesisUtterance(message.content);
     utterance.lang = "zh-CN";
     utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.onend = () => setSpeechState("idle");
-    utterance.onerror = () => setSpeechState("idle");
-    speechUtteranceRef.current = utterance;
+    utterance.onend = () => setDeviceSpeechId(null);
+    utterance.onerror = () => setDeviceSpeechId(null);
+    setDeviceSpeechId(message.id);
     window.speechSynthesis.speak(utterance);
-    setSpeechState("speaking");
   }
 
-  function stopSpeech() {
-    window.speechSynthesis?.cancel();
-    speechUtteranceRef.current = null;
-    setSpeechState("idle");
-  }
-
-  function finishSession() {
-    stopCloudSpeech();
-    stopSpeech();
-    setReply("");
-    setProvider("");
-    setNotice("今天先记到这里就好。记录已经保存，你不必马上解决全部。");
-    setCompanionState("done");
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    document.getElementById("today")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
-  }
-
-  async function deleteMyRecords() {
-    const code = participantCode.trim();
-    if (!validCode) {
-      setError("请先输入你的匿名编号。");
-      return;
-    }
-    if (!window.confirm("确定删除这个匿名编号下的全部心情记录吗？删除后无法恢复。")) return;
-
-    setError("");
-    try {
-      const response = await fetch("/api/moods", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ participantCode: code }),
-      });
-      const data = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(data.error || "暂时无法删除记录");
-      setEntries([]);
-      setNotice("这个匿名编号下的记录已删除。");
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "暂时无法删除记录");
-    }
-  }
-
-  function downloadMyRecords() {
-    if (!entries.length) {
-      setError("当前没有可导出的记录。");
-      return;
-    }
-    const rows = [
-      ["时间", "心情", "小目标", "主动请求真人支持"],
-      ...entries.map((entry) => [formatDate(entry.createdAt), entry.mood, entry.goal, entry.wantsSupport ? "是" : "否"]),
-    ];
-    const csv = `\uFEFF${rows.map((row) => row.map(csvCell).join(",")).join("\n")}`;
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `xinban-${participantCode.trim()}-records.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
-  const weekSummary = useMemo(() => {
-    const recent = entries.slice(0, 7);
-    const days = new Set(recent.map((entry) => new Date(entry.createdAt).toLocaleDateString("zh-CN"))).size;
-    return { recent, days };
+  const recentSummary = useMemo(() => {
+    const supportCount = entries.filter((entry) => entry.wantsSupport).length;
+    return { count: entries.length, supportCount };
   }, [entries]);
 
-  const companionStatus: Record<CompanionState, string> = {
-    idle: "AI 回应可选",
-    "mood-selected": "已记下这份心情",
-    saving: "正在安全保存",
-    responding: "正在整理文字",
-    done: "今天的记录已完成",
-    urgent: "现在先联系真人",
-  };
-  const voiceBusy = recordingState === "requesting" || recordingState === "recording" || recordingState === "transcribing";
-  const recordingTime = `0:${String(recordingSeconds).padStart(2, "0")} / 0:30`;
-  const now = new Date();
-  const todayLabel = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
+  if (authState === "loading") {
+    return (
+      <main className="app-loading" aria-busy="true">
+        <Image src="/dog.svg" alt="" width={88} height={88} priority />
+        <p>正在确认学校账号……</p>
+      </main>
+    );
+  }
+
+  if (authState === "error" || !user) {
+    return (
+      <main className="app-loading">
+        <h1>暂时无法进入</h1>
+        <p>没有连接到学校服务，请检查网络后重试。</p>
+        <button className="primary-button" type="button" onClick={() => window.location.reload()}>
+          重新尝试
+        </button>
+      </main>
+    );
+  }
+
+  if (passwordGate) {
+    return (
+      <main className="consent-page">
+        <section className="consent-card password-card" aria-labelledby="password-title">
+          <div className="consent-brand">
+            <Image src="/dog.svg" alt="" width={64} height={64} priority />
+            <span>心伴 AI-Pet</span>
+          </div>
+          <p className="eyebrow">首次登录保护</p>
+          <h1 id="password-title">先把学校发放的初始密码换掉</h1>
+          <p className="consent-lead">新密码只用于你的学校账号。请不要使用姓名、生日、班级或常用社交账号密码。</p>
+          <form className="password-form" onSubmit={changeInitialPassword}>
+            <label htmlFor="current-password">学校发放的初始密码</label>
+            <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+            <label htmlFor="new-password">设置新密码</label>
+            <input id="new-password" type="password" autoComplete="new-password" value={newPassword} minLength={12} onChange={(event) => setNewPassword(event.target.value)} required aria-describedby="new-password-help" />
+            <p id="new-password-help" className="field-note">至少 12 个字符，建议使用几个无关词语加数字。</p>
+            <label htmlFor="confirm-password">再次输入新密码</label>
+            <input id="confirm-password" type="password" autoComplete="new-password" value={confirmPassword} minLength={12} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            {passwordError && <p className="form-error" role="alert">{passwordError}</p>}
+            <button className="primary-button" type="submit" disabled={passwordBusy}>{passwordBusy ? "正在修改……" : "保存新密码并继续"}</button>
+            <button className="text-button" type="button" onClick={logout}>退出账号</button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
+  if (requiresConsent) {
+    return (
+      <main className="consent-page">
+        <section className="consent-card" aria-labelledby="consent-title">
+          <div className="consent-brand">
+            <Image src="/dog.svg" alt="" width={64} height={64} priority />
+            <span>心伴 AI-Pet</span>
+          </div>
+          <p className="eyebrow">首次使用说明</p>
+          <h1 id="consent-title">在开始前，请先了解这些边界</h1>
+          <p className="consent-lead">
+            心伴用于记录每日心情，并在你主动选择时提供短时 AI 对话。它不是心理诊断，也不能代替老师、家长、医生或紧急服务。
+          </p>
+          <div className={`guardian-status ${user.guardianConsentVerified ? "is-verified" : "is-blocked"}`}>
+            <strong>监护人同意：{user.guardianConsentVerified ? "学校已核验" : "学校尚未核验"}</strong>
+            <p>
+              {user.guardianConsentVerified
+                ? "你可以阅读并确认自己的使用意愿。"
+                : "在学校完成监护人同意核验前，你不能进入记录或 AI 对话。请联系老师。"}
+            </p>
+          </div>
+          <ul className="consent-points">
+            <li>心情记录会保存在学校部署的服务中；你可以查看和删除自己的内容。</li>
+            <li>只有你主动选择 AI 对话时，相关文字才会发送给学校配置的模型。</li>
+            <li>AI 可能出错；遇到安全问题应立即找真人，紧急危险拨打 110 或 120。</li>
+            <li>老师只查看班级汇总、支持请求和最少必要安全线索，不查看普通聊天原文。</li>
+          </ul>
+          <form onSubmit={acceptConsent}>
+            <label className="check-row consent-check">
+              <input
+                type="checkbox"
+                checked={consentChecked}
+                onChange={(event) => setConsentChecked(event.target.checked)}
+                disabled={!user.guardianConsentVerified}
+              />
+              <span>我读懂了这些边界，并愿意开始使用。</span>
+            </label>
+            {consentError && <p className="form-error" role="alert">{consentError}</p>}
+            <div className="consent-actions">
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={!user.guardianConsentVerified || !consentChecked || consentBusy}
+              >
+                {consentBusy ? "正在保存……" : "同意并进入"}
+              </button>
+              <button className="text-button" type="button" onClick={logout}>退出账号</button>
+            </div>
+          </form>
+          <section className="consent-data-rights" aria-labelledby="data-rights-title">
+            <h2 id="data-rights-title">不同意 AI，也可以管理已有数据</h2>
+            <p>
+              你可以直接导出或删除本账号的心情和对话原文，无需重新同意记录、AI 或语音功能。
+            </p>
+            <div>
+              <button type="button" className="quiet-button" onClick={exportExistingData} disabled={dataRightsBusy}>
+                导出已有数据
+              </button>
+              <button type="button" className="data-delete-button" onClick={deleteExistingData} disabled={dataRightsBusy}>
+                删除已有记录
+              </button>
+            </div>
+            {dataRightsMessage && <p className="data-rights-status" role="status">{dataRightsMessage}</p>}
+          </section>
+        </section>
+      </main>
+    );
+  }
+
+  const today = new Intl.DateTimeFormat("zh-CN", {
     month: "long",
     day: "numeric",
-    weekday: "short",
-  }).format(now);
-  const shanghaiHour = Number(new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Shanghai",
-    hour: "2-digit",
-    hour12: false,
-  }).format(now));
-  const greeting = shanghaiHour < 11 ? "上午好" : shanghaiHour < 14 ? "中午好" : shanghaiHour < 18 ? "下午好" : "晚上好";
+    weekday: "long",
+  }).format(new Date());
+  const displayName = user.displayName?.trim() || user.username;
 
   return (
-    <div className="site-shell" data-state={companionState} data-mood={selectedMood?.tone || "none"}>
-      <a className="skip-link" href="#today">跳到今天的心情记录</a>
-      <header className="topbar">
-        <Link className="brand" href="/" aria-label="心伴 AI-Pet 首页">
-          <span className="brand-image" aria-hidden="true">
-            <Image src="/dog.svg" alt="" width={42} height={42} priority />
-          </span>
-          <span>
-            <strong>心伴</strong>
-            <small>AI-PET · v4.0</small>
-          </span>
-        </Link>
-        <nav className="topnav" aria-label="主导航">
-          <a className="nav-today" href="#today" aria-current="page">今天</a>
-          <button type="button" className="nav-button nav-records" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>我的记录</button>
-          <a className="nav-help" href="#help">找真人</a>
-          <Link className="nav-teacher" href="/teacher">教师端</Link>
+    <div className="student-app" lang="zh-CN">
+      <a className="skip-link" href="#student-main">跳到主要内容</a>
+      <header className="student-topbar">
+        <a className="student-brand" href="#student-main" aria-label="心伴 AI-Pet 首页">
+          <Image src="/dog.svg" alt="" width={44} height={44} priority />
+          <span><strong>心伴</strong><small>AI-Pet</small></span>
+        </a>
+        <nav className="student-nav" aria-label="学生页面导航">
+          <a href="#today">今日记录</a>
+          <button
+            type="button"
+            className="nav-button"
+            onClick={() => {
+              setHistoryOpen((open) => !open);
+              if (!historyOpen) void loadHistory();
+            }}
+            aria-expanded={historyOpen}
+          >
+            我的记录
+          </button>
+          <a href="#human-help">找真人</a>
         </nav>
+        <div className="student-account">
+          <span><small>学校账号</small>{displayName}</span>
+          <button type="button" onClick={logout}>退出</button>
+        </div>
       </header>
 
-      <main>
-        <section className="hero" aria-labelledby="hero-title">
-          <div className="hero-copy">
-            <div className="eyebrow">{todayLabel} · 今天也照顾自己</div>
-            <h1 id="hero-title">{greeting}，同学</h1>
-            <p>今天的开心、困惑和小进步，都可以放在这里。只选一个心情，也算认真照顾了自己。</p>
+      <main id="student-main" className="student-main">
+        <section className="student-hero" aria-labelledby="student-title">
+          <div>
+            <p className="eyebrow">{today}</p>
+            <h1 id="student-title">嗨，{displayName}。今天心里是什么天气？</h1>
+            <p>不用写得完整，也没有标准答案。先照顾此刻真实的感受。</p>
           </div>
-          <div className="identity-card" aria-labelledby="identity-title">
-            <div>
-              <span className="step-dot" aria-hidden="true">01</span>
-              <div>
-                <strong id="identity-title">我的匿名空间</strong>
-                <small>使用学校发放的编号，不写姓名</small>
-              </div>
-            </div>
-            <label className="code-field" htmlFor="participant-code">
-              <span className="sr-only">学校发放的匿名编号</span>
-              <input
-                id="participant-code"
-                value={participantCode}
-                onChange={(event) => setParticipantCode(event.target.value.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20))}
-                placeholder="例如 XB-042"
-                autoComplete="off"
-                inputMode="text"
-                aria-invalid={participantCode.length > 0 && !validCode}
-                aria-describedby="participant-code-help"
-              />
-              <button type="button" onClick={() => void loadHistory()} disabled={loadingHistory || !participantCode}>
-                {loadingHistory ? "读取中…" : "查看记录"}
-              </button>
-            </label>
-            <p id="participant-code-help"><strong>隐私说明：</strong>编号由学校单独发放，真实姓名不会发送给模型。</p>
-          </div>
+          <div className="privacy-pill"><span aria-hidden="true">●</span> 学校账号 · 隐私优先</div>
         </section>
 
-        <section id="today" className="workspace" aria-labelledby="today-title">
-          <aside className="companion-card">
-            <div className="companion-head">
-              <div className="online-pill" role="status" aria-live="polite"><span></span> {companionStatus[companionState]}</div>
-              <span className="companion-mode">需你主动开启</span>
-            </div>
-            <div className="pet-stage">
-              <Image key={selectedMood?.id || "idle"} src="/dog.svg" alt="AI 心情伙伴小伴" className="pet-image" width={260} height={260} priority />
-            </div>
-            <div className="pet-speech">
-              <h2>我是 AI 小伴</h2>
-              <p>{selectedMood ? moodFeedback[selectedMood.id] : "慢慢来。你可以先选一个最接近的心情，再决定要不要写几句。"}</p>
-              <small>我不是真人，也可能理解错；你随时可以跳过或找现实中的人。</small>
-            </div>
-            <div className="pet-boundary">
-              <strong>这段陪伴会在今天收束</strong>
-              <span>记录心情 · 可选一次 AI 建议 · 需要时找真人</span>
-            </div>
-            <div className="reality-note">不是诊断、测评或紧急服务</div>
-          </aside>
-
-          <form className="checkin-card" onSubmit={(event) => void submitEntry(event)} aria-busy={Boolean(submitting)}>
-            <div className="card-heading">
-              <div>
-                <span className="step-label">TODAY&apos;S CHECK-IN</span>
-                <h2 id="today-title">把此刻轻轻记下来</h2>
-                <p>先选心情，再决定是否补充文字。没有标准答案。</p>
-              </div>
-              <span className="optional-badge">约 30 秒</span>
-            </div>
-
-            <div className="mood-grid" role="radiogroup" aria-label="选择今天的心情" aria-describedby={selectedMood ? "mood-feedback" : undefined}>
-              {moodOptions.map((mood, index) => (
-                <label
-                  key={mood.id}
-                  className={`mood-option mood-${mood.tone}${selectedMood?.id === mood.id ? " selected" : ""}`}
-                >
-                  <input
-                    className="sr-only"
-                    type="radio"
-                    name="mood"
-                    value={mood.id}
-                    checked={selectedMood?.id === mood.id}
-                    onChange={() => chooseMood(mood)}
-                  />
-                  <span className="mood-index" aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-                  <strong>{mood.label}</strong>
-                  <small>{mood.cue}</small>
-                </label>
-              ))}
-            </div>
-
-            {selectedMood && (
-              <p key={selectedMood.id} id="mood-feedback" className="mood-feedback" role="status" aria-live="polite">
-                <strong>{selectedMood.label}</strong>
-                <span>{moodFeedback[selectedMood.id]}</span>
-              </p>
-            )}
-
-            <div className="prompt-row" aria-label="可以点选一个开头">
-              {quickPrompts.map((prompt) => (
-                <button key={prompt} type="button" onClick={() => appendPrompt(prompt)}>{prompt}</button>
-              ))}
-            </div>
-
-            <div className="field-group">
-              <div className="field-label-row">
-                <label htmlFor="daily-note">今天最想记下什么？ <small>可不填</small></label>
-                <button
-                  className="voice-trigger"
-                  type="button"
-                  disabled={voiceSupported !== true || voiceBusy || Boolean(submitting)}
-                  aria-expanded={recordingState !== "idle"}
-                  aria-controls="voice-panel"
-                  onClick={() => {
-                    setVoiceMessage("");
-                    setRecordingState("notice");
-                  }}
-                >
-                  {voiceSupported === null ? "正在检查语音…" : voiceSupported ? "使用语音输入" : "设备不支持录音"}
-                </button>
-              </div>
-              <textarea
-                id="daily-note"
-                value={note}
-                onChange={(event) => {
-                  setNote(event.target.value.slice(0, 600));
-                  if (selectedMood) setCompanionState("mood-selected");
-                }}
-                placeholder="比如：数学最后一道题有点难，我有些着急……"
-                rows={4}
-                aria-describedby={(recordingState !== "idle" || voiceMessage || voiceSupported === false) ? "note-help voice-status" : "note-help"}
-              />
-              <small id="note-help" className={remaining < 60 ? "count warning" : "count"}>请不要写姓名、电话或住址 · 还可写 {remaining} 字</small>
-
-              {(recordingState !== "idle" || voiceMessage || voiceSupported === false) && (
-                <div id="voice-panel" className={`voice-panel state-${recordingState}`}>
-                  {recordingState === "notice" && (
-                    <div className="voice-disclosure" role="note">
-                      <strong>开始前请确认</strong>
-                      <p>最多录 30 秒、文件不超过 2.5MB（优先使用压缩录音格式）。确认后才会把音频发送给学校配置的阿里云百炼北京语音转写服务；转成文字后立即丢弃音频。请先检查文字，再决定是否保存。</p>
-                      <div className="voice-actions">
-                        <button type="button" className="voice-primary" onClick={() => void startVoiceRecording()}>我知道了，开始录音</button>
-                        <button type="button" onClick={cancelVoiceRecording}>暂不使用</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {recordingState === "requesting" && (
-                    <div className="voice-progress" role="status">
-                      <span className="recording-dot" aria-hidden="true"></span>
-                      <strong>正在请求麦克风权限…</strong>
-                      <button type="button" onClick={cancelVoiceRecording}>取消</button>
-                    </div>
-                  )}
-
-                  {recordingState === "recording" && (
-                    <div className="voice-progress recording" role="status" aria-live="polite">
-                      <span className="recording-dot" aria-hidden="true"></span>
-                      <strong>正在录音</strong>
-                      <time>{recordingTime}</time>
-                      <div className="voice-actions">
-                        <button type="button" className="voice-primary" onClick={stopVoiceRecording}>停止并转成文字</button>
-                        <button type="button" onClick={cancelVoiceRecording}>取消并删除</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {recordingState === "transcribing" && (
-                    <div className="voice-progress" role="status" aria-live="polite">
-                      <span className="recording-dot" aria-hidden="true"></span>
-                      <strong>正在转成文字…</strong>
-                      <button type="button" onClick={cancelVoiceRecording}>取消</button>
-                    </div>
-                  )}
-
-                  {(recordingState === "review" || recordingState === "error") && (
-                    <div className="voice-result" role={recordingState === "error" ? "alert" : "status"}>
-                      <strong>{recordingState === "review" ? "请检查上面的文字" : "语音输入没有完成"}</strong>
-                      <div className="voice-actions">
-                        <button type="button" onClick={() => { setVoiceMessage(""); setRecordingState("notice"); }}>再次语音输入</button>
-                        <button type="button" onClick={() => { setRecordingState("idle"); setVoiceMessage(""); }}>关闭提示</button>
-                      </div>
-                    </div>
-                  )}
-
-                  <p id="voice-status" className="voice-message" role="status" aria-live="polite">
-                    {voiceSupported === false ? "此设备暂不支持安全录音，请继续使用文字输入。" : voiceMessage}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <label className="field-group goal-field">
-              <span>给今天一个小小的下一步 <small>可不填</small></span>
-              <input
-                value={goal}
-                onChange={(event) => setGoal(event.target.value.slice(0, 80))}
-                placeholder="比如：把错题整理一题"
-              />
-            </label>
-
-            <label className="support-toggle" htmlFor="wants-support" aria-label="我想找老师或支持人员聊聊">
-              <input id="wants-support" type="checkbox" checked={wantsSupport} aria-describedby="support-share-help" onChange={(event) => setWantsSupport(event.target.checked)} />
-              <span className="toggle-box" aria-hidden="true"></span>
-              <span>
-                <strong>我想找老师或支持人员聊聊</strong>
-                <small id="support-share-help">只有你主动请求或出现明确安全风险时，才会共享最少必要信息。</small>
-              </span>
-            </label>
-
-            <label className="support-toggle ai-choice" htmlFor="wants-ai" aria-label="我也想要一条可选的 AI 建议">
-              <input id="wants-ai" type="checkbox" checked={wantsAi} aria-describedby="ai-share-help" onChange={(event) => setWantsAi(event.target.checked)} />
-              <span className="toggle-box" aria-hidden="true"></span>
-              <span>
-                <strong>我也想要一条可选的 AI 建议</strong>
-                <small id="ai-share-help">默认关闭。开启后，本次记录文字会临时发送给学校配置的模型；AI 回复不保存。</small>
-              </span>
-            </label>
-
-            {(error || notice) && (
-              <div id="form-message" className={error ? "form-message error" : "form-message success"} role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"}>
-                {error || notice}
-              </div>
-            )}
-
-            <div className="form-actions">
-              <button className="primary-action save-action" type="submit" disabled={Boolean(submitting) || voiceBusy}>
-                {submitting ? (companionState === "responding" ? "正在整理你写的内容…" : "正在安全保存…") : (wantsAi ? "保存记录并获取 AI 建议" : "保存今天的记录")}
-              </button>
-            </div>
-            <p className="consent-copy">记录框文字会随本次心情记录保存。{wantsAi ? "本次还会临时发送给学校配置的模型，AI 回复不保存。" : "目前不会发送给模型。"}</p>
-          </form>
-
-          <aside className="side-stack">
-            <section className="insight-card">
-              <span className="step-label">RECENT CHECK-INS</span>
-              <h2>最近记录</h2>
-              <div className="week-visual" aria-label={weekSummary.days ? `最近七条记录来自 ${weekSummary.days} 天` : "还没有记录"}>
-                <div className="week-count"><strong>{weekSummary.days ? `${weekSummary.days} 天` : "暂无"}</strong><small>最近 7 条记录</small></div>
-                <div className={weekSummary.recent.length ? "week-moods" : "week-moods empty"} aria-hidden="true">
-                  {weekSummary.recent.length ? weekSummary.recent.slice().reverse().map((entry) => (
-                    <span key={entry.id}>{moodOptions.find((mood) => mood.label === entry.mood)?.label || "已记录"}</span>
-                  )) : <span>尚无记录</span>}
-                </div>
-              </div>
-              <p>{entries.length ? `已读取 ${entries.length} 条记录。这里只帮助回看，不计算情绪分数。` : "输入匿名编号后，可以在这里回看自己的记录。"}</p>
-              <button type="button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>查看我的记录</button>
-            </section>
-
-            <section className="privacy-card">
-              <div className="privacy-icon" aria-hidden="true">选择</div>
-              <div>
-                <strong>你有选择权</strong>
-                <p>可以跳过、导出、删除或停止参加，不影响成绩和获得学校支持。</p>
-              </div>
-            </section>
-          </aside>
-        </section>
-
-        {reply && !urgent && <p className="sr-only" role="status" aria-live="polite">AI 建议已准备好。{reply}</p>}
-        {(reply || urgent) && (
+        {urgent && (
           <section
-            className={urgent ? "reply-section urgent" : "reply-section"}
-            aria-labelledby="reply-title"
-            aria-live={urgent ? "assertive" : undefined}
-            aria-atomic={urgent ? "true" : undefined}
-            role={urgent ? "alert" : "region"}
-            ref={replyRef}
-            tabIndex={urgent ? -1 : undefined}
+            id="human-help"
+            className="emergency-card"
+            aria-labelledby="emergency-title"
+            role="alert"
+            tabIndex={-1}
+            ref={emergencyRef}
           >
-            <div className="reply-avatar"><Image src="/dog.svg" alt="" width={68} height={68} /></div>
-            <div className="reply-body">
-              <div className="reply-meta">
-                <h2 id="reply-title">{urgent ? "现在先保证安全" : "一条可选的 AI 建议"}</h2>
-                <span>{urgent ? "本地安全提示" : `${providerNames[provider] || "AI"} · AI 生成，可能有误`}</span>
+            <p className="eyebrow">现在先保证安全</p>
+            <h2 id="emergency-title">请马上找一位身边的成年人</h2>
+            <p>{chatStatus || crisisMessage}</p>
+            <div className="emergency-actions">
+              <a href="tel:110">拨打 110</a>
+              <a href="tel:120">拨打 120</a>
+              <span>也可以立刻去找老师、家长、校医或其他可信任的成年人</span>
+            </div>
+          </section>
+        )}
+
+        {phase === "checkin" && (
+          <section id="today" className="checkin-workspace" aria-labelledby="checkin-title">
+            <aside className={`pet-pane ${selectedMood ? `tone-${selectedMood.tone}` : ""}`}>
+              <div className="pet-halo" aria-hidden="true"></div>
+              <Image
+                className="pet-image"
+                src="/dog.svg"
+                alt="小伴，一只陪你记录心情的小狗形象"
+                width={260}
+                height={260}
+                priority
+              />
+              <div className="pet-dialogue" aria-live="polite">
+                <strong>{selectedMood ? `我听见“${selectedMood.label}”了` : "我在这里，慢慢来"}</strong>
+                <p>{selectedMood ? moodFeedback[selectedMood.id] : "先选一个最接近的感受。说不清也可以。"}</p>
               </div>
-              <p>{reply}</p>
-              {urgent ? (
-                <div className="urgent-actions">
-                  <a href="tel:110">立即拨打 110</a>
-                  <a href="tel:120">立即拨打 120</a>
-                  <a href="#help">找可信任的大人</a>
+              <div className="pet-boundary">
+                <span>小伴是 AI</span>
+                <p>它不会生气、离开或评价你，也不能替代真人关系。</p>
+              </div>
+            </aside>
+
+            <form className="checkin-card" onSubmit={saveCheckin}>
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">每日心情记录</p>
+                  <h2 id="checkin-title">此刻最接近哪一种？</h2>
                 </div>
-              ) : <p className="reply-nudge">这只是一条建议。可以采用、修改或忽略，也可以把小步骤告诉一位信任的老师、家长或同学。</p>}
-              {urgent && <small>本研究原型尚不能保证自动通知老师。请你现在主动联系身边可信任的成年人。</small>}
-              {!urgent && (
-                <>
-                  <div className="reply-audio-tools">
-                    <div className="cloud-speech-controls" aria-label="Qwen 云端语音朗读控制">
-                      <button
-                        type="button"
-                        className="cloud-speech-primary"
-                        disabled={cloudSpeechState === "loading"}
-                        aria-pressed={cloudSpeechState === "playing" || cloudSpeechState === "paused"}
-                        aria-describedby="cloud-speech-status"
-                        onClick={() => void toggleCloudSpeech()}
-                      >
-                        {cloudSpeechState === "loading" && "正在准备 Qwen 语音…"}
-                        {(cloudSpeechState === "idle" || cloudSpeechState === "error") && "使用 Qwen 语音朗读"}
-                        {cloudSpeechState === "playing" && "暂停 Qwen 朗读"}
-                        {cloudSpeechState === "paused" && "继续 Qwen 朗读"}
-                      </button>
-                      {(cloudSpeechState === "loading" || cloudSpeechState === "playing" || cloudSpeechState === "paused") && (
-                        <button type="button" onClick={() => stopCloudSpeech(cloudSpeechState === "loading" ? "已取消准备云端语音。" : "Qwen 云端朗读已停止。") }>
-                          {cloudSpeechState === "loading" ? "取消" : "停止"}
-                        </button>
+                <span className="step-mark">约 1 分钟</span>
+              </div>
+
+              <fieldset className="mood-fieldset">
+                <legend className="sr-only">选择此刻心情</legend>
+                <div className="mood-grid">
+                  {moodOptions.map((mood) => (
+                    <button
+                      key={mood.id}
+                      type="button"
+                      className={`mood-choice tone-${mood.tone} ${selectedMood?.id === mood.id ? "is-selected" : ""}`}
+                      onClick={() => {
+                        setSelectedMood(mood);
+                        setError("");
+                      }}
+                      aria-pressed={selectedMood?.id === mood.id}
+                    >
+                      <span className="mood-dot" aria-hidden="true"></span>
+                      <strong>{mood.label}</strong>
+                      <small>{mood.cue}</small>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              <div className="writing-block">
+                <div className="writing-heading">
+                  <label htmlFor="note">想说点什么？<small>可选</small></label>
+                  <button
+                    className="voice-trigger"
+                    type="button"
+                    onClick={() => {
+                      setVoiceTarget("note");
+                      setRecordingState((state) => state === "idle" ? "notice" : state);
+                    }}
+                    disabled={voiceSupported === false}
+                    aria-expanded={recordingState !== "idle"}
+                    aria-controls="voice-panel"
+                  >
+                    <span aria-hidden="true">◉</span> 语音输入
+                  </button>
+                </div>
+                <div className="textarea-shell">
+                  <textarea
+                    id="note"
+                    value={note}
+                    maxLength={600}
+                    rows={7}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="可以写发生了什么、身体有什么感觉，或者只写一句话……"
+                    aria-describedby="note-privacy note-count"
+                  />
+                  <span id="note-count" className="char-count">{noteRemaining} 字可用</span>
+                </div>
+                <p id="note-privacy" className="privacy-note">这段文字会随心情记录保存。老师不会看到普通 AI 对话原文。</p>
+
+                {recordingState !== "idle" && (
+                  <div id="voice-panel" className={`voice-panel state-${recordingState}`} aria-live="polite">
+                    {recordingState === "notice" && (
+                      <>
+                        <strong>录音前请确认</strong>
+                        <p>最多录 30 秒、文件不超过 2.5MB（优先使用压缩录音格式）。音频只用于本次转写，不保存；转写文字可修改。</p>
+                        <div className="inline-actions">
+                          <button type="button" className="small-primary" onClick={startRecording}>允许并开始</button>
+                          <button type="button" className="small-quiet" onClick={cancelRecording}>取消</button>
+                        </div>
+                      </>
+                    )}
+                    {recordingState === "requesting" && <p>正在请求麦克风权限……</p>}
+                    {recordingState === "recording" && (
+                      <>
+                        <div className="recording-row"><span className="recording-dot" aria-hidden="true"></span><strong>正在录音</strong><time>0:{String(recordingSeconds).padStart(2, "0")} / 0:30</time></div>
+                        <div className="inline-actions">
+                          <button type="button" className="small-primary" onClick={stopRecording}>停止并转成文字</button>
+                          <button type="button" className="small-quiet" onClick={cancelRecording}>取消录音</button>
+                        </div>
+                      </>
+                    )}
+                    {recordingState === "transcribing" && <p>正在转成文字。请不要关闭页面……</p>}
+                    {(recordingState === "review" || recordingState === "error") && (
+                      <>
+                        <strong>{recordingState === "review" ? "请检查上面的文字" : "语音输入没有完成"}</strong>
+                        <p>{voiceMessage}</p>
+                        <button type="button" className="small-quiet" onClick={cancelRecording}>关闭</button>
+                      </>
+                    )}
+                  </div>
+                )}
+                {voiceSupported === false && <p className="field-note">当前浏览器不支持安全录音格式，请使用文字输入。</p>}
+              </div>
+
+              <div className="prompt-chips" aria-label="快速填入一句开头">
+                {quickPrompts.map((prompt) => (
+                  <button key={prompt} type="button" onClick={() => setNote((current) => current ? current : prompt)}>{prompt}</button>
+                ))}
+              </div>
+
+              <label className="field-label" htmlFor="goal">今天想照顾好的一件小事 <small>可选</small></label>
+              <input
+                id="goal"
+                className="text-input"
+                value={goal}
+                maxLength={120}
+                onChange={(event) => setGoal(event.target.value)}
+                placeholder="例如：下课后去走一小圈"
+              />
+
+              <div className="choice-panel">
+                <label className="check-row">
+                  <input aria-label="我希望老师或辅导员联系我" type="checkbox" checked={wantsSupport} onChange={(event) => setWantsSupport(event.target.checked)} />
+                  <span><strong>我希望老师或辅导员联系我</strong><small>这会进入真人支持队列，不等于评价或诊断。</small></span>
+                </label>
+                <label className="check-row">
+                  <input aria-label="保存后进入一次短时 AI 对话" type="checkbox" checked={wantsAi} onChange={(event) => setWantsAi(event.target.checked)} />
+                  <span><strong>保存后进入一次短时 AI 对话</strong><small>最多 15 分钟或 12 轮；内容可能发送给学校配置的 Qwen 北京模型。</small></span>
+                </label>
+              </div>
+
+              {error && <p className="form-error" role="alert">{error}</p>}
+              <button className="save-button" type="submit" disabled={!selectedMood || submitting}>
+                {submitting ? "正在保存……" : wantsAi ? "保存并进入 AI 对话" : "只保存心情"}
+              </button>
+              <p className="submit-boundary">先保存到学校服务；只有勾选 AI 对话才会调用模型。AI 不是心理诊断。</p>
+            </form>
+          </section>
+        )}
+
+        {phase === "chat" && (
+          <section className="conversation-shell" aria-labelledby="conversation-title">
+            <aside className="conversation-pet">
+              <Image src="/dog.svg" alt="小伴 AI 小狗形象" width={218} height={218} />
+              <p className="eyebrow">短时陪伴</p>
+              <h2>一起把这一刻说清一点</h2>
+              <p>小伴不会替你做决定。你随时可以结束、删除，或转向真人。</p>
+              <a className="human-button" href="#human-support-card">找真人支持</a>
+            </aside>
+            <div className="conversation-card">
+              <header className="conversation-header">
+                <div>
+                  <div className="ai-identity"><span aria-hidden="true">AI</span><strong id="conversation-title">小伴对话</strong></div>
+                  <p>AI 生成 · 可能有误 · {providerNames[provider] || provider || "学校配置模型"}</p>
+                </div>
+                <div className="conversation-limits" aria-label="会话剩余限制">
+                  <span><strong>{formatCountdown(secondsRemaining)}</strong> 剩余时间</span>
+                  <span><strong>{turnsRemaining}</strong> 剩余轮次</span>
+                </div>
+              </header>
+
+              <div className="conversation-toolbar" aria-label="会话操作">
+                <button type="button" onClick={finishConversation} disabled={conversationUnavailable}>结束会话</button>
+                <button type="button" onClick={copyConversation} disabled={!messages.length}>复制会话</button>
+                <button type="button" className="danger-text" onClick={deleteConversation} disabled={!conversationId || chatBusy}>删除会话</button>
+                <a href="#human-support-card">真人求助</a>
+              </div>
+
+              <div className="chat-log" ref={chatLogRef} aria-label="与小伴的对话">
+                {messages.map((message) => (
+                  <article key={message.id} className={`chat-message is-${message.role}`}>
+                    <div className="chat-speaker">
+                      {message.role === "assistant" ? (
+                        <Image src="/dog.svg" alt="" width={36} height={36} />
+                      ) : (
+                        <span aria-hidden="true">我</span>
                       )}
                     </div>
-                    <p
-                      id="cloud-speech-status"
-                      className={cloudSpeechState === "error" ? "cloud-speech-status error" : "cloud-speech-status"}
-                      role={cloudSpeechState === "error" ? "alert" : "status"}
-                      aria-live="polite"
-                    >
-                      {cloudSpeechMessage || "点击后才会把这条 AI 建议发送到学校配置的 Qwen 语音服务；音频不保存。"}
-                    </p>
-                    <details className="device-speech-fallback">
-                      <summary>设备朗读备用</summary>
-                      <div className="speech-controls" aria-label="设备朗读控制">
-                        <button
-                          type="button"
-                          disabled={speechSupported !== true}
-                          aria-pressed={speechState !== "idle"}
-                          onClick={toggleSpeech}
-                        >
-                          {speechSupported === false && "此设备不支持朗读"}
-                          {speechSupported === null && "正在检查朗读…"}
-                          {speechSupported && speechState === "idle" && "使用设备朗读"}
-                          {speechSupported && speechState === "speaking" && "暂停设备朗读"}
-                          {speechSupported && speechState === "paused" && "继续设备朗读"}
-                        </button>
-                        {speechState !== "idle" && <button type="button" onClick={stopSpeech}>停止</button>}
-                        <span className="sr-only" role="status" aria-live="polite">
-                          {speechState === "speaking" ? "正在使用设备朗读 AI 建议" : speechState === "paused" ? "设备朗读已暂停" : "设备朗读已停止"}
-                        </span>
+                    <div className="chat-bubble">
+                      <div className="chat-meta">
+                        <strong>{message.role === "assistant" ? "小伴 · AI" : "我"}</strong>
+                        <time>{formatDate(message.createdAt)}</time>
                       </div>
-                    </details>
-                  </div>
-                  <div className="reply-closure">
-                    <p><strong>今天先记到这里就好。</strong>你不必马上解决全部，需要时可以让现实中的人一起帮忙。</p>
-                    <div>
-                      <button type="button" onClick={finishSession}>完成今天记录</button>
-                      <a href="#help">找现实中的人</a>
+                      <p>{message.content}</p>
+                      {message.role === "assistant" && !urgent && (
+                        <div className="message-audio">
+                          <button
+                            type="button"
+                            onClick={() => void speakWithCloud(message)}
+                            disabled={cloudSpeechState === "loading" && activeSpeechId === message.id}
+                            aria-pressed={activeSpeechId === message.id && cloudSpeechState === "playing"}
+                          >
+                            {activeSpeechId === message.id && cloudSpeechState === "loading"
+                              ? "正在生成语音…"
+                              : activeSpeechId === message.id && cloudSpeechState === "playing"
+                                ? "暂停 Qwen 朗读"
+                                : activeSpeechId === message.id && cloudSpeechState === "paused"
+                                  ? "继续 Qwen 朗读"
+                                  : "使用 Qwen 语音朗读"}
+                          </button>
+                          {activeSpeechId === message.id && (cloudSpeechState === "playing" || cloudSpeechState === "paused") && (
+                            <button type="button" onClick={() => stopAudio("朗读已停止。 ")}>停止</button>
+                          )}
+                          {deviceSpeechSupported && (
+                            <button type="button" onClick={() => speakWithDevice(message)} aria-pressed={deviceSpeechId === message.id}>
+                              {deviceSpeechId === message.id ? "停止设备朗读" : "设备朗读"}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
+                  </article>
+                ))}
+                {chatBusy && (
+                  <div className="chat-thinking" role="status"><span></span><span></span><span></span> 小伴正在整理回应</div>
+                )}
+              </div>
+
+              <div className="chat-live" aria-live="polite" aria-atomic="true">
+                {conversationUnavailable && !chatEnded
+                  ? turnsRemaining <= 0
+                    ? "本次 12 轮对话已完成。可以休息一下，或找一位真人继续聊。"
+                    : "本次 15 分钟对话已结束。可以休息一下，或找一位真人继续聊。"
+                  : chatStatus}
+                {cloudSpeechMessage ? ` ${cloudSpeechMessage}` : ""}
+              </div>
+              {error && <p className="form-error conversation-error" role="alert">{error}</p>}
+
+              {conversationUnavailable ? (
+                <div className="conversation-finished">
+                  <strong>本次对话已收束</strong>
+                  <p>{chatStatus || (turnsRemaining <= 0 ? "本次 12 轮已经完成。" : "本次 15 分钟已经结束。")}</p>
+                  <button className="primary-button" type="button" onClick={resetCheckin}>开始新的心情记录</button>
+                </div>
+              ) : (
+                <form className="chat-composer" onSubmit={(event) => void sendChat(event)}>
+                  <div className="composer-heading">
+                    <span>继续和小伴说</span>
+                    <button
+                      className="voice-trigger"
+                      type="button"
+                      onClick={() => {
+                        setVoiceTarget("chat");
+                        setRecordingState((state) => state === "idle" ? "notice" : state);
+                      }}
+                      disabled={voiceSupported === false || chatBusy}
+                      aria-expanded={recordingState !== "idle" && voiceTarget === "chat"}
+                    >
+                      <span aria-hidden="true">◉</span> 语音输入
+                    </button>
                   </div>
-                </>
+                  <label className="sr-only" htmlFor="chat-draft">继续和小伴说</label>
+                  <textarea
+                    id="chat-draft"
+                    rows={3}
+                    maxLength={300}
+                    value={chatDraft}
+                    onChange={(event) => setChatDraft(event.target.value)}
+                    onKeyDown={handleChatKeyDown}
+                    placeholder="继续说说看……按 Enter 发送，Shift + Enter 换行"
+                    disabled={chatBusy}
+                  />
+                  <div className="composer-footer">
+                    <span>{chatRemaining} 字可用</span>
+                    <button type="submit" disabled={!chatDraft.trim() || chatBusy}>发送</button>
+                  </div>
+                  {voiceTarget === "chat" && recordingState !== "idle" && (
+                    <div className={`voice-panel composer-voice state-${recordingState}`} aria-live="polite">
+                      {recordingState === "notice" && (
+                        <>
+                          <strong>录音前请确认</strong>
+                          <p>最多 30 秒且不超过 2.5MB。音频只用于转写、不保存；文字会先放进输入框，由你检查后再发送。</p>
+                          <div className="inline-actions"><button type="button" className="small-primary" onClick={startRecording}>允许并开始</button><button type="button" className="small-quiet" onClick={cancelRecording}>取消</button></div>
+                        </>
+                      )}
+                      {recordingState === "requesting" && <p>正在请求麦克风权限……</p>}
+                      {recordingState === "recording" && (
+                        <><div className="recording-row"><span className="recording-dot" aria-hidden="true"></span><strong>正在录音</strong><time>0:{String(recordingSeconds).padStart(2, "0")} / 0:30</time></div><div className="inline-actions"><button type="button" className="small-primary" onClick={stopRecording}>停止并转成文字</button><button type="button" className="small-quiet" onClick={cancelRecording}>取消</button></div></>
+                      )}
+                      {recordingState === "transcribing" && <p>正在转成文字，请稍候……</p>}
+                      {(recordingState === "review" || recordingState === "error") && (
+                        <><strong>{recordingState === "review" ? "已放入输入框，请检查" : "语音输入没有完成"}</strong><p>{voiceMessage}</p><button type="button" className="small-quiet" onClick={cancelRecording}>关闭</button></>
+                      )}
+                    </div>
+                  )}
+                </form>
               )}
+            </div>
+          </section>
+        )}
+
+        {phase === "saved" && !urgent && (
+          <section className="saved-card" aria-labelledby="saved-title">
+            <Image src="/dog.svg" alt="" width={112} height={112} />
+            <div>
+              <p className="eyebrow">已完成</p>
+              <h2 id="saved-title">这次心情已经好好放下了</h2>
+              <p>{notice || error || "不用继续解释。现在可以去做一件很小、很具体的事。"}</p>
+              <div className="saved-actions">
+                <button className="primary-button" type="button" onClick={resetCheckin}>记录新的心情</button>
+                <button className="quiet-button" type="button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>查看我的记录</button>
+              </div>
             </div>
           </section>
         )}
@@ -1085,55 +1536,111 @@ export default function StudentCompanion() {
         {historyOpen && (
           <section className="history-section" aria-labelledby="history-title">
             <div className="section-heading">
-              <div>
-                <span className="step-label">YOUR RECORDS</span>
-                <h2 id="history-title">只属于你的回看</h2>
-              </div>
-              <div className="history-actions">
-                <button type="button" onClick={downloadMyRecords}>导出记录</button>
-                <button type="button" className="danger-link" onClick={() => void deleteMyRecords()}>删除全部</button>
-                <button type="button" aria-label="收起我的记录" onClick={() => setHistoryOpen(false)}>×</button>
-              </div>
+              <div><p className="eyebrow">只属于你的回看</p><h2 id="history-title">近期心情记录</h2></div>
+              <button className="quiet-button" type="button" onClick={() => setHistoryOpen(false)}>收起</button>
             </div>
-            {entries.length ? (
+            {historyBusy ? (
+              <p className="empty-state">正在读取……</p>
+            ) : entries.length ? (
               <div className="history-list">
                 {entries.map((entry) => (
                   <article key={entry.id}>
-                    <div className="history-mood">{moodOptions.find((mood) => mood.label === entry.mood)?.label || "已记录"}</div>
-                    <div>
-                      <div className="history-meta"><strong>{entry.mood}</strong><time>{formatDate(entry.createdAt)}</time></div>
-                      {entry.note && <p>{entry.note}</p>}
-                      {entry.goal && <span className="goal-chip">下一步：{entry.goal}</span>}
-                      {entry.wantsSupport && <span className="support-chip">已请求真人支持</span>}
-                    </div>
+                    <span className={`history-dot tone-${moodOptions.find((mood) => mood.id === entry.mood)?.tone || "mist"}`}></span>
+                    <div><strong>{moodOptions.find((mood) => mood.id === entry.mood)?.label || "已记录"}</strong><time>{formatDate(entry.createdAt)}</time></div>
+                    <p>{entry.note || entry.goal || "这次只记录了心情。"}</p>
+                    {entry.wantsSupport && <span className="support-tag">已请求真人支持</span>}
                   </article>
                 ))}
               </div>
             ) : (
-              <div className="empty-state">还没有记录。今天只选一个心情，也算好好照顾了自己。</div>
+              <p className="empty-state">还没有记录。第一条可以只选一个心情，不必写文字。</p>
             )}
+            <p className="history-summary">当前载入 {recentSummary.count} 条，其中 {recentSummary.supportCount} 条请求了真人支持。</p>
           </section>
         )}
 
-        <section id="help" className="support-section" aria-labelledby="support-title">
+        <section id="human-support-card" className="human-support-card" aria-labelledby="human-title">
           <div>
-            <span className="step-label">REAL PEOPLE, REAL SUPPORT</span>
-            <h2 id="support-title">有些事，不需要一个人扛。</h2>
-            <p>AI 小伴可以帮你理一理，但真正的支持来自现实中的人。你可以从最容易联系的一位开始。</p>
+            <p className="eyebrow">真人永远在 AI 前面</p>
+            <h2 id="human-title">不想和 AI 说，也完全可以</h2>
+            <p>可以去找班主任、家长、校心理老师或其他信任的成年人。若有立即危险，请拨打 110 或 120。</p>
           </div>
-          <div className="support-options">
-            <article><span aria-hidden="true">师</span><div><strong>学校里的可信任老师</strong><p>班主任、心理教师或学校指定的支持人员</p></div></article>
-            <article><span aria-hidden="true">家</span><div><strong>你信任的家人或成年人</strong><p>也可以是亲戚、教练或社工</p></div></article>
-            <article className="emergency"><span aria-hidden="true">!</span><div><strong>如果你或别人正面临立即危险</strong><p>请现在拨打 <a href="tel:110">110</a> 或 <a href="tel:120">120</a>，并走到可信任的大人身边</p></div></article>
-          </div>
+          <div className="human-support-actions"><a href="tel:110">110</a><a href="tel:120">120</a></div>
         </section>
       </main>
 
-      <footer>
-        <div className="brand footer-brand"><span className="brand-image" aria-hidden="true"><Image src="/dog.svg" alt="" width={42} height={42} /></span><span><strong>心伴 AI-Pet</strong><small>EITT 2026 研究原型</small></span></div>
-        <p>学生自我记录 × AI 低压力回应 × 教师人工支持</p>
-        <p className="footer-note">本原型不是医疗或心理诊断工具。正式试点需经学校审批、监护人同意与未成年人本人同意。</p>
+      <a className="mobile-human-help" href="#human-support-card">找真人帮助</a>
+      <footer className="student-footer">
+        <div>
+          <p>心伴 AI-Pet · 学校支持工具，不是诊断或评价系统</p>
+          <p>AI 生成内容可能有误；安全问题请立即找真人。</p>
+        </div>
+        <button
+          className="withdraw-consent-button"
+          type="button"
+          onClick={() => {
+            setWithdrawOpen(true);
+            setWithdrawChecked(false);
+            setWithdrawError("");
+          }}
+        >
+          撤回同意并退出
+        </button>
       </footer>
+
+      {withdrawOpen && (
+        <div
+          className="consent-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeWithdrawDialog();
+          }}
+        >
+          <section
+            className="consent-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="withdraw-consent-title"
+            aria-describedby="withdraw-consent-description"
+          >
+            <p className="eyebrow">使用同意管理</p>
+            <h2 id="withdraw-consent-title" ref={withdrawTitleRef} tabIndex={-1}>
+              确认撤回同意并退出？
+            </h2>
+            <div id="withdraw-consent-description" className="withdraw-explanation">
+              <p>确认后，你会立即退出，系统将停止新的心情记录、AI 对话、语音转写与云端朗读。</p>
+              <p><strong>这不会自动删除已有内容。</strong>你以后仍可使用学校账号登录，并导出或删除自己的已有记录与会话。</p>
+            </div>
+            <div className="withdraw-warning">
+              若只是想暂停，可以选择“暂不撤回”，直接退出账号即可。
+            </div>
+            <form onSubmit={withdrawConsent}>
+              <label className="check-row withdraw-confirm-check">
+                <input
+                  type="checkbox"
+                  checked={withdrawChecked}
+                  onChange={(event) => setWithdrawChecked(event.target.checked)}
+                  disabled={withdrawBusy}
+                  aria-label="我理解撤回同意不会自动删除已有内容"
+                />
+                <span>
+                  <strong>我理解撤回后会立即停止新使用并退出</strong>
+                  <small>已有内容不会自动删除，需要由我之后登录并主动管理。</small>
+                </span>
+              </label>
+              {withdrawError && <p className="form-error" role="alert">{withdrawError}</p>}
+              <div className="withdraw-actions">
+                <button type="button" className="quiet-button" onClick={closeWithdrawDialog} disabled={withdrawBusy}>
+                  暂不撤回
+                </button>
+                <button type="submit" className="withdraw-danger-button" disabled={!withdrawChecked || withdrawBusy}>
+                  {withdrawBusy ? "正在撤回并退出……" : "确认撤回同意并退出"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
