@@ -56,7 +56,7 @@
     {
       "version": "v4.0.1",
       "type": "qwen-beijing-three-path-compatibility-patch",
-      "commit": null,
+      "commit": "3220a600799a73e090df659a5918053375510c8f",
       "fixedPath": "./v4.0.1/",
       "interfaceBasedOn": "v4.0.0",
       "primaryModel": "Qwen",
