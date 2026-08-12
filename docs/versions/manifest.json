@@ -129,7 +129,7 @@
     {
       "version": "v5.3.0",
       "type": "adult-operated-synthetic-school-sandbox",
-      "commit": null,
+      "commit": "a75f5a45a32e87775075a32730fe3915f1335d9a",
       "fixedPath": "./v5.3.0/",
       "participants": [
         "adult-testers-only"
