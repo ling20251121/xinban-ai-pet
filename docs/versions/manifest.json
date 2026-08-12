@@ -233,7 +233,7 @@
     {
       "version": "v5.4.0",
       "type": "adult-formative-real-qwen-multiturn-dialogue-evaluation",
-      "commit": null,
+      "commit": "c42b110ecd2bd1739b69223b7f9301d6c1ebdb5b",
       "fixedPath": "./v5.4.0/",
       "participants": [
         "adult-testers-only",
