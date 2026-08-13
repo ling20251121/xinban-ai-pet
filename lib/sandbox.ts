@@ -15,8 +15,14 @@ function randomText(bytes: number): string {
   return Array.from(value, (byte) => byte.toString(36).padStart(2, "0")).join("").slice(0, bytes * 2);
 }
 
+function randomDigits(length: number): string {
+  const value = new Uint8Array(length);
+  crypto.getRandomValues(value);
+  return Array.from(value, (byte) => String(byte % 10)).join("");
+}
+
 function randomPassword(): string {
-  return `Sb!${randomText(10)}A7`;
+  return `Ai!${randomDigits(6)}Q`;
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
@@ -106,17 +112,17 @@ function insertUser(
 export async function initializeSyntheticSchool() {
   requireSandboxMode();
   const database = await getSystemDatabase();
-  const suffix = randomText(4);
+  const suffix = randomDigits(4);
   const claimToken = randomText(16);
   const teacher: SyntheticAccount = {
     id: crypto.randomUUID(),
-    username: `demo.teacher.${suffix}`,
+    username: `tea-${suffix}`,
     password: randomPassword(),
     displayName: "虚构教师·晴老师",
   };
   const students: SyntheticAccount[] = Array.from({ length: SYNTHETIC_STUDENT_COUNT }, (_, index) => ({
     id: crypto.randomUUID(),
-    username: `demo.student${index + 1}.${suffix}`,
+    username: `stu${index + 1}-${suffix}`,
     password: randomPassword(),
     displayName: `虚构学生 ${String.fromCharCode(65 + index)}`,
   }));

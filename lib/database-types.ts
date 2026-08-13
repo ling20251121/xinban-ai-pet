@@ -43,4 +43,6 @@ export interface RuntimeConfig {
   EVALUATION_ETHICS_STATUS?: string;
   EVALUATION_RETENTION_DAYS?: string;
   EVALUATION_DATA_HOST?: string;
+  LOCAL_MENTAL_HEALTH_NAME?: string;
+  LOCAL_MENTAL_HEALTH_PHONE?: string;
 }

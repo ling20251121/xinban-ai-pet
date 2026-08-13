@@ -82,6 +82,15 @@ test("sandbox is explicit, initializes only synthetic rows, gates adult login, r
   assert.equal(credentials.syntheticOnly, true);
   assert.equal(credentials.students.length, 3);
   assert.equal(credentials.scenarios.length, 3);
+  assert.match(credentials.teacher.username, /^tea-[0-9]{4}$/u);
+  assert.doesNotMatch(credentials.teacher.username, /demo\./iu);
+  assert.match(credentials.teacher.password, /^Ai![0-9]{6}Q$/u);
+  assert.doesNotMatch(credentials.teacher.password, /Sb/iu);
+  credentials.students.forEach((student, index) => {
+    assert.match(student.username, new RegExp(`^stu${index + 1}-[0-9]{4}$`, "u"));
+    assert.match(student.password, /^Ai![0-9]{6}Q$/u);
+    assert.doesNotMatch(student.password, /Sb/iu);
+  });
   for (const table of ["school_classes", "app_users", "mood_entries"]) {
     assert.equal(
       Number((await db.prepare(`SELECT COUNT(*) count FROM ${table} WHERE synthetic<>1`).first()).count),

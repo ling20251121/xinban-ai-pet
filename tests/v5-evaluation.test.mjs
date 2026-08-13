@@ -133,6 +133,7 @@ test("four consents, code-derived role, one-time code, 12 synthetic scenarios, a
   assert.match(rendered, /实际 Qwen 对话全文及模型\/提示版本/u);
   assert.match(rendered, /邀请消息中的联系渠道/u);
   assert.match(rendered, /随机编号去标识保存/u);
+  assert.match(rendered, /syntheticOnlyConfirmed[^<]*" required \/><span>我理解全部案例均为合成情境/u);
   assert.doesNotMatch(rendered, /当前仅作系统测试|不作为论文实证结果|伦理状态|审批材料|审批机构|审批编号|研究者身份/u);
   const missing = await callApi("/api/evaluation/session", mutation(consent(teacherCode, { dataUseConfirmed: false })), bindings);
   assert.equal(missing.status, 400);

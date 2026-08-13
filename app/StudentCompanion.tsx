@@ -21,6 +21,12 @@ type User = {
   guardianConsentVerified: boolean;
   studentConsented: boolean;
   mustChangePassword: boolean;
+  safetyContact: { name: string; phone: string } | null;
+};
+
+type SupportDirectory = {
+  national: { name: string; phone: string };
+  local: { name: string; phone: string } | null;
 };
 
 type MoodOption = {
@@ -60,6 +66,8 @@ type RecordingState =
   | "error";
 
 type CloudSpeechState = "idle" | "loading" | "playing" | "paused" | "error";
+
+type BreathingState = "ready" | "running" | "paused" | "complete";
 
 const moodOptions: MoodOption[] = [
   { id: "happy", label: "开心", cue: "明亮", score: 5, tone: "sun" },
@@ -107,9 +115,9 @@ const crisisMessage =
   "如果你现在可能伤害自己或他人，请立刻离开危险物品和危险地点，去找身边可信任的成年人。紧急危险请拨打 110 或 120。";
 
 const sandboxScenarios = [
-  { match: ["student1", "demo-s01", "sandbox-s01"], code: "S01 · 学习压力", text: "你扮演一位在数学测验前有些紧张的虚构学生。记录“紧张”，提到最后一道题没做完，并请 AI 帮你想一个小步骤。" },
-  { match: ["student2", "demo-s02", "sandbox-s02"], code: "S02 · 同伴相处", text: "你扮演一位因虚构小组合作而有些低落的学生。记录“难过”，说自己的意见没被听见，再测试“请求老师支持”。" },
-  { match: ["student3", "demo-s03", "sandbox-s03"], code: "S03 · 积极日常", text: "你扮演一位因完成虚构科学小实验而开心的学生。记录“开心”，说一件想记住的小事，再和 AI 继续两轮对话。" },
+  { match: ["student1", "stu1-", "demo-s01", "sandbox-s01"], code: "S01 · 学习压力", text: "你扮演一位在数学测验前有些紧张的虚构学生。记录“紧张”，提到最后一道题没做完，并请 AI 帮你想一个小步骤。" },
+  { match: ["student2", "stu2-", "demo-s02", "sandbox-s02"], code: "S02 · 同伴相处", text: "你扮演一位因虚构小组合作而有些低落的学生。记录“难过”，说自己的意见没被听见，再测试“请求老师支持”。" },
+  { match: ["student3", "stu3-", "demo-s03", "sandbox-s03"], code: "S03 · 积极日常", text: "你扮演一位因完成虚构科学小实验而开心的学生。记录“开心”，说一件想记住的小事，再和 AI 继续两轮对话。" },
 ];
 
 function formatDate(value: string) {
@@ -158,6 +166,10 @@ function makeLocalMessage(
 export default function StudentCompanion() {
   const [authState, setAuthState] = useState<"loading" | "ready" | "error">("loading");
   const [user, setUser] = useState<User | null>(null);
+  const [supportDirectory, setSupportDirectory] = useState<SupportDirectory>({
+    national: { name: "全国统一心理援助热线", phone: "12356" },
+    local: null,
+  });
   const [requiresConsent, setRequiresConsent] = useState(false);
   const [passwordGate, setPasswordGate] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -174,6 +186,10 @@ export default function StudentCompanion() {
   const [withdrawChecked, setWithdrawChecked] = useState(false);
   const [withdrawBusy, setWithdrawBusy] = useState(false);
   const [withdrawError, setWithdrawError] = useState("");
+  const [breathingOpen, setBreathingOpen] = useState(false);
+  const [breathingState, setBreathingState] = useState<BreathingState>("ready");
+  const [breathingSeconds, setBreathingSeconds] = useState(60);
+  const [supportCircleOpen, setSupportCircleOpen] = useState(false);
 
   const [selectedMood, setSelectedMood] = useState<MoodOption | null>(null);
   const [note, setNote] = useState("");
@@ -215,6 +231,10 @@ export default function StudentCompanion() {
   const chatLogRef = useRef<HTMLDivElement>(null);
   const emergencyRef = useRef<HTMLElement>(null);
   const withdrawTitleRef = useRef<HTMLHeadingElement>(null);
+  const breathingTitleRef = useRef<HTMLHeadingElement>(null);
+  const breathingTriggerRef = useRef<HTMLButtonElement>(null);
+  const supportCircleTitleRef = useRef<HTMLHeadingElement>(null);
+  const supportCircleTriggerRef = useRef<HTMLButtonElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -237,6 +257,26 @@ export default function StudentCompanion() {
     : 15 * 60;
   const turnsRemaining = Math.max(0, 12 - studentTurns);
   const conversationUnavailable = chatEnded || secondsRemaining <= 0 || turnsRemaining <= 0;
+  const breathingElapsed = 60 - breathingSeconds;
+  const breathingCycleSecond = breathingElapsed % 12;
+  const breathingPhase = breathingState === "complete"
+    ? "完成"
+    : breathingState === "ready"
+      ? "准备好了吗"
+      : breathingCycleSecond < 4
+        ? "慢慢吸气"
+        : breathingCycleSecond < 6
+          ? "停一停"
+          : "缓缓呼气";
+  const breathingPhaseClass = breathingState === "complete"
+    ? "complete"
+    : breathingState === "ready"
+      ? "ready"
+      : breathingCycleSecond < 4
+        ? "inhale"
+        : breathingCycleSecond < 6
+          ? "hold"
+          : "exhale";
 
   const stopAudio = useCallback((message = "") => {
     cloudSpeechRequestRef.current += 1;
@@ -287,6 +327,7 @@ export default function StudentCompanion() {
           authenticated?: boolean;
           user?: User;
           requiresStudentConsent?: boolean;
+          supportDirectory?: SupportDirectory;
         };
         if (!active) return;
         if (!data.authenticated || !data.user) {
@@ -298,6 +339,7 @@ export default function StudentCompanion() {
           return;
         }
         setUser(data.user);
+        if (data.supportDirectory) setSupportDirectory(data.supportDirectory);
         setPasswordGate(Boolean(data.user.mustChangePassword));
         setRequiresConsent(
           !data.user.guardianConsentVerified || Boolean(data.requiresStudentConsent),
@@ -368,6 +410,55 @@ export default function StudentCompanion() {
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [withdrawOpen, withdrawBusy]);
+
+  useEffect(() => {
+    if (!breathingOpen) return;
+    const frame = window.requestAnimationFrame(() => breathingTitleRef.current?.focus());
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setBreathingOpen(false);
+        setBreathingState("ready");
+        setBreathingSeconds(60);
+        window.requestAnimationFrame(() => breathingTriggerRef.current?.focus());
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [breathingOpen]);
+
+  useEffect(() => {
+    if (!supportCircleOpen) return;
+    const frame = window.requestAnimationFrame(() => supportCircleTitleRef.current?.focus());
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSupportCircleOpen(false);
+        window.requestAnimationFrame(() => supportCircleTriggerRef.current?.focus());
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [supportCircleOpen]);
+
+  useEffect(() => {
+    if (!breathingOpen || breathingState !== "running") return;
+    const timer = window.setInterval(() => {
+      setBreathingSeconds((seconds) => {
+        if (seconds <= 1) {
+          window.clearInterval(timer);
+          setBreathingState("complete");
+          return 0;
+        }
+        return seconds - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [breathingOpen, breathingState]);
 
   useEffect(() => () => {
     voiceRequestRef.current += 1;
@@ -538,6 +629,24 @@ export default function StudentCompanion() {
     setWithdrawOpen(false);
     setWithdrawChecked(false);
     setWithdrawError("");
+  }
+
+  function openBreathingDialog() {
+    setBreathingSeconds(60);
+    setBreathingState("ready");
+    setBreathingOpen(true);
+  }
+
+  function closeBreathingDialog() {
+    setBreathingOpen(false);
+    setBreathingState("ready");
+    setBreathingSeconds(60);
+    window.requestAnimationFrame(() => breathingTriggerRef.current?.focus());
+  }
+
+  function closeSupportCircle() {
+    setSupportCircleOpen(false);
+    window.requestAnimationFrame(() => supportCircleTriggerRef.current?.focus());
   }
 
   async function withdrawConsent(event: FormEvent<HTMLFormElement>) {
@@ -1189,7 +1298,7 @@ export default function StudentCompanion() {
           >
             我的记录
           </button>
-          <a href="#human-help">找真人</a>
+          <a href="#human-support-card">找真人</a>
         </nav>
         <div className="student-account">
           <span><small>虚构学生账号</small>{displayName}</span>
@@ -1228,10 +1337,16 @@ export default function StudentCompanion() {
             <p className="eyebrow">现在先保证安全</p>
             <h2 id="emergency-title">请马上找一位身边的成年人</h2>
             <p>{chatStatus || crisisMessage}</p>
+            <div className="urgent-support-first" aria-label="优先真人支持">
+              {user?.safetyContact && !/^0[- 0]*$/u.test(user.safetyContact.phone) && <a href={`tel:${user.safetyContact.phone}`}>{user.safetyContact.name} · {user.safetyContact.phone}</a>}
+              {supportDirectory.local && <a href={`tel:${supportDirectory.local.phone}`}>{supportDirectory.local.name} · {supportDirectory.local.phone}</a>}
+              <a href={`tel:${supportDirectory.national.phone}`}>{supportDirectory.national.name} · {supportDirectory.national.phone}</a>
+            </div>
             <div className="emergency-actions">
+              <strong>只有正在发生人身危险或已经受伤时：</strong>
               <a href="tel:110">拨打 110</a>
               <a href="tel:120">拨打 120</a>
-              <span>也可以立刻去找老师、家长、校医或其他可信任的成年人</span>
+              <span>同时立刻去找老师、家长、校医或其他可信任的成年人</span>
             </div>
           </section>
         )}
@@ -1557,6 +1672,48 @@ export default function StudentCompanion() {
           </section>
         )}
 
+        {!urgent && (
+          <section className="wellbeing-tools" aria-labelledby="wellbeing-tools-title">
+            <div className="wellbeing-tools-heading">
+              <div>
+                <p className="eyebrow">给自己一点缓冲</p>
+                <h2 id="wellbeing-tools-title">现在想先做哪一件小事？</h2>
+              </div>
+              <p>不用做得完美，也不必强迫自己坚持。</p>
+            </div>
+            <div className="wellbeing-tool-grid">
+              <button
+                ref={breathingTriggerRef}
+                type="button"
+                className="wellbeing-tool-card breathing-tool-card"
+                onClick={openBreathingDialog}
+                aria-haspopup="dialog"
+              >
+                <span className="tool-card-orbit" aria-hidden="true"><span></span></span>
+                <span>
+                  <small>3 分钟能量补给</small>
+                  <strong>和小伴呼吸一下</strong>
+                  <em>现在开始 →</em>
+                </span>
+              </button>
+              <button
+                ref={supportCircleTriggerRef}
+                type="button"
+                className="wellbeing-tool-card support-tool-card"
+                onClick={() => setSupportCircleOpen(true)}
+                aria-haspopup="dialog"
+              >
+                <span className="tool-card-people" aria-hidden="true"><span></span><span></span><span></span></span>
+                <span>
+                  <small>我的支持圈</small>
+                  <strong>找一个真实的人陪在身边</strong>
+                  <em>看看可以联系谁 →</em>
+                </span>
+              </button>
+            </div>
+          </section>
+        )}
+
         {historyOpen && (
           <section className="history-section" aria-labelledby="history-title">
             <div className="section-heading">
@@ -1587,9 +1744,14 @@ export default function StudentCompanion() {
           <div>
             <p className="eyebrow">真人永远在 AI 前面</p>
             <h2 id="human-title">不想和 AI 说，也完全可以</h2>
-            <p>可以去找班主任、家长、校心理老师或其他信任的成年人。若有立即危险，请拨打 110 或 120。</p>
+            <p>先联系学校心理辅导室、心理老师或其他信任的成年人；也可以拨打心理援助热线。若出现立即人身危险，页面会单独显示紧急求助指引。</p>
           </div>
-          <div className="human-support-actions"><a href="tel:110">110</a><a href="tel:120">120</a></div>
+          <div className="human-support-actions" aria-label="真人支持联系方式">
+            {user?.safetyContact && !/^0[- 0]*$/u.test(user.safetyContact.phone) ? <a href={`tel:${user.safetyContact.phone}`}><strong>{user.safetyContact.name}</strong><span>{user.safetyContact.phone}</span></a> : <div className="support-placeholder"><strong>学校心理辅导室</strong><span>正式使用时由学校填写</span></div>}
+            {supportDirectory.local && <a href={`tel:${supportDirectory.local.phone}`}><strong>{supportDirectory.local.name}</strong><span>{supportDirectory.local.phone}</span></a>}
+            <a href={`tel:${supportDirectory.national.phone}`}><strong>{supportDirectory.national.name}</strong><span>{supportDirectory.national.phone}</span></a>
+            <button type="button" onClick={() => setSupportCircleOpen(true)}>打开我的支持圈</button>
+          </div>
         </section>
       </main>
 
@@ -1611,6 +1773,80 @@ export default function StudentCompanion() {
           撤回同意并退出
         </button>
       </footer>
+
+      {breathingOpen && (
+        <div
+          className="wellbeing-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeBreathingDialog();
+          }}
+        >
+          <section
+            className="wellbeing-modal breathing-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="breathing-title"
+            aria-describedby="breathing-guidance"
+          >
+            <button className="wellbeing-modal-close" type="button" onClick={closeBreathingDialog} aria-label="关闭呼吸练习">关闭</button>
+            <p className="eyebrow">一分钟练习</p>
+            <h2 id="breathing-title" ref={breathingTitleRef} tabIndex={-1}>让身体先慢下来</h2>
+            <div className={`breathing-orb phase-${breathingPhaseClass}`} aria-hidden="true"><span></span></div>
+            <div className="breathing-live" aria-live="polite" aria-atomic="true">
+              <strong>{breathingPhase}</strong>
+              <span>{breathingState === "complete" ? "你已经完成这一分钟" : `${breathingSeconds} 秒`}</span>
+            </div>
+            <p id="breathing-guidance">双脚踩稳地面，肩膀轻轻放松。跟着文字慢慢来；如果不舒服，随时暂停或结束。</p>
+            <div className="wellbeing-modal-actions">
+              {breathingState === "ready" && <button type="button" className="primary-button" onClick={() => setBreathingState("running")}>开始呼吸</button>}
+              {breathingState === "running" && <button type="button" className="primary-button" onClick={() => setBreathingState("paused")}>暂停</button>}
+              {breathingState === "paused" && <button type="button" className="primary-button" onClick={() => setBreathingState("running")}>继续</button>}
+              {breathingState === "complete" && <button type="button" className="primary-button" onClick={() => { setBreathingSeconds(60); setBreathingState("ready"); }}>再做一次</button>}
+              <button type="button" className="quiet-button" onClick={closeBreathingDialog}>{breathingState === "complete" ? "完成" : "结束练习"}</button>
+            </div>
+            <p className="breathing-silent-note">本练习只显示文字和动画，不会自动播放声音或打开麦克风。</p>
+          </section>
+        </div>
+      )}
+
+      {supportCircleOpen && (
+        <div
+          className="wellbeing-modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeSupportCircle();
+          }}
+        >
+          <section
+            className="wellbeing-modal support-circle-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="support-circle-title"
+            aria-describedby="support-circle-guidance"
+          >
+            <button className="wellbeing-modal-close" type="button" onClick={closeSupportCircle} aria-label="关闭我的支持圈">关闭</button>
+            <p className="eyebrow">我的支持圈</p>
+            <h2 id="support-circle-title" ref={supportCircleTitleRef} tabIndex={-1}>找一个真实的人陪在身边</h2>
+            <p id="support-circle-guidance">需要帮助时，可以先选择一位可信任的人。你决定是否联系；页面不会自动发送消息。</p>
+            <div className="support-circle-grid">
+              {user?.safetyContact && !/^0[- 0]*$/u.test(user.safetyContact.phone) ? (
+                <a href={`tel:${user.safetyContact.phone}`}><span aria-hidden="true">校</span><strong>{user.safetyContact.name}</strong><small>{user.safetyContact.phone}</small></a>
+              ) : (
+                <div className="is-placeholder"><span aria-hidden="true">校</span><strong>学校心理辅导室</strong><small>正式使用时由学校填写</small></div>
+              )}
+              {supportDirectory.local && <a href={`tel:${supportDirectory.local.phone}`}><span aria-hidden="true">心</span><strong>{supportDirectory.local.name}</strong><small>{supportDirectory.local.phone}</small></a>}
+              <a href={`tel:${supportDirectory.national.phone}`}><span aria-hidden="true">心</span><strong>{supportDirectory.national.name}</strong><small>{supportDirectory.national.phone}</small></a>
+              <div><span aria-hidden="true">师</span><strong>班主任或任课老师</strong><small>当面或通过学校正式渠道联系</small></div>
+              <div><span aria-hidden="true">家</span><strong>监护人或可信任的成年人</strong><small>请对方现在陪你一会儿</small></div>
+              <div><span aria-hidden="true">友</span><strong>信任的同学或朋友</strong><small>可以请对方陪你一起去找老师</small></div>
+            </div>
+            <div className="support-circle-emergency"><strong>只有正在发生人身危险或已经受伤时：</strong>立即找身边成年人，并拨打 110 或 120。</div>
+            <button type="button" className="support-circle-done" onClick={closeSupportCircle}>我知道可以找谁了</button>
+            <p className="support-circle-privacy">页面不会自动拨号或发送消息。</p>
+          </section>
+        </div>
+      )}
 
       {withdrawOpen && (
         <div

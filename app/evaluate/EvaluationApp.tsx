@@ -318,7 +318,7 @@ export default function EvaluationApp() {
           </div>
           <div className="consent-checks" aria-label="参与确认">
             <label className="check"><input type="checkbox" name="adultConfirmed" required />我确认已满 18 周岁。</label>
-            <label className="check"><input type="checkbox" name="syntheticOnlyConfirmed" required />我理解全部案例均为合成情境，并承诺<strong>不输入真实学生信息</strong>。</label>
+            <label className="check"><input type="checkbox" name="syntheticOnlyConfirmed" required /><span>我理解全部案例均为合成情境，并承诺<strong>不输入真实学生信息</strong>。</span></label>
             <label className="check"><input type="checkbox" name="dataUseConfirmed" required />我同意将案例判断、实际 Qwen 对话全文及模型/提示版本、评分、用时、量表和可选反馈用于去标识研究汇总。</label>
             <label className="check"><input type="checkbox" name="voluntaryConfirmed" required />我自愿参加，并理解可以按页面说明退出或撤回。</label>
           </div>
