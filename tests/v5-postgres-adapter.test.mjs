@@ -1,10 +1,25 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 const nodeBin = process.env.CODEX_NODE_BIN || process.execPath;
+
+test("auth rate-limit upsert qualifies PostgreSQL target columns", async () => {
+  const source = await readFile(new URL("../lib/auth.ts", import.meta.url), "utf8");
+  const upsert = source.match(
+    /INSERT INTO auth_rate_limits[\s\S]*?ON CONFLICT\(scope_key\) DO UPDATE SET([\s\S]*?)`\)\.bind/u,
+  )?.[1];
+
+  assert.ok(upsert, "auth rate-limit upsert must remain present");
+  assert.match(upsert, /auth_rate_limits\.expires_at <= excluded\.window_started_at/u);
+  assert.match(upsert, /ELSE auth_rate_limits\.window_started_at END/u);
+  assert.match(upsert, /ELSE auth_rate_limits\.request_count\+1 END/u);
+  assert.match(upsert, /ELSE auth_rate_limits\.expires_at END/u);
+  assert.doesNotMatch(upsert, /WHEN\s+expires_at\s+<=/u);
+  assert.doesNotMatch(upsert, /ELSE\s+(?:window_started_at|request_count|expires_at)\b/u);
+});
 
 test("PostgreSQL adapter rewrites only unquoted placeholders", async () => {
   const { postgresSql, postgresSslConfiguration } = await import("../lib/postgres-adapter.ts");

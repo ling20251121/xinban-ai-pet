@@ -431,12 +431,12 @@ export async function consumeAuthRateLimit(
     INSERT INTO auth_rate_limits (scope_key,window_started_at,request_count,expires_at)
     VALUES (?,?,1,?)
     ON CONFLICT(scope_key) DO UPDATE SET
-      window_started_at=CASE WHEN expires_at <= excluded.window_started_at
-        THEN excluded.window_started_at ELSE window_started_at END,
-      request_count=CASE WHEN expires_at <= excluded.window_started_at
-        THEN 1 ELSE request_count+1 END,
-      expires_at=CASE WHEN expires_at <= excluded.window_started_at
-        THEN excluded.expires_at ELSE expires_at END
+      window_started_at=CASE WHEN auth_rate_limits.expires_at <= excluded.window_started_at
+        THEN excluded.window_started_at ELSE auth_rate_limits.window_started_at END,
+      request_count=CASE WHEN auth_rate_limits.expires_at <= excluded.window_started_at
+        THEN 1 ELSE auth_rate_limits.request_count+1 END,
+      expires_at=CASE WHEN auth_rate_limits.expires_at <= excluded.window_started_at
+        THEN excluded.expires_at ELSE auth_rate_limits.expires_at END
   `).bind(key, now.toISOString(), expiresAt).run();
   const state = await database
     .prepare("SELECT request_count FROM auth_rate_limits WHERE scope_key=?")

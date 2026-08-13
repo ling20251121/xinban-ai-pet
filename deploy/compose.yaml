@@ -77,7 +77,7 @@ services:
       postgres:
         condition: service_healthy
     environment: *app-environment
-    command: ["node", "--conditions=react-server", "scripts/migrate-postgres.mjs"]
+    command: ["node", "scripts/migrate-postgres.mjs"]
     volumes:
       - ./runtime/postgres-ca:/run/postgres-ca:ro
     restart: "no"

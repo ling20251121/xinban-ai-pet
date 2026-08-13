@@ -32,4 +32,4 @@ COPY --from=build --chown=xinban:xinban /app/postgres ./postgres
 
 USER xinban
 EXPOSE 3000
-CMD ["node", "--conditions=react-server", "scripts/start-postgres.mjs"]
+CMD ["node", "scripts/start-postgres.mjs"]

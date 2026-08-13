@@ -29,30 +29,6 @@ const runtimeEnvironment = (): import("vite").Plugin => ({
   },
 });
 
-const nodeReactDomServerEdgeInterop = (): import("vite").Plugin => ({
-  name: "xinban-node-react-dom-server-edge-interop",
-  enforce: "pre",
-  resolveId(source) {
-    if (source === "react-dom/server.edge" && isNodePostgresBuild) {
-      return "\0xinban-react-dom-server-edge-interop";
-    }
-    return null;
-  },
-  load(id) {
-    if (id === "\0xinban-react-dom-server-edge-interop") {
-      return [
-        'import serverEdge from "react-dom/server.edge.js";',
-        "export const renderToReadableStream = serverEdge.renderToReadableStream;",
-        "export const renderToString = serverEdge.renderToString;",
-        "export const renderToStaticMarkup = serverEdge.renderToStaticMarkup;",
-        "export const resume = serverEdge.resume;",
-        "export const version = serverEdge.version;",
-      ].join("\n");
-    }
-    return null;
-  },
-});
-
 const localBindingConfig = {
   main: "./worker/index.ts",
   compatibility_flags: ["nodejs_compat"],
@@ -86,18 +62,11 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
-    // Vinext's SSR entry imports named exports from react-dom/server.edge.
-    // Node treats that published entry as CommonJS when it remains external,
-    // so bundle React DOM into the Node/PostgreSQL SSR artifact instead.
-    ssr: isNodePostgresBuild
-      ? { noExternal: ["react-dom", "react-dom/server.edge"] }
-      : undefined,
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
       runtimeEnvironment(),
-      nodeReactDomServerEdgeInterop(),
       vinext(),
       sites(),
       ...(isNodePostgresBuild
