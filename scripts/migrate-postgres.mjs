@@ -14,6 +14,7 @@ const migrationUrls = [
   new URL("../postgres/0005_three_hour_conversations.sql", import.meta.url),
   new URL("../postgres/0006_conversation_cues.sql", import.meta.url),
   new URL("../postgres/0007_student_ui_formative_items.sql", import.meta.url),
+  new URL("../postgres/0008_student_ui_actual_usability.sql", import.meta.url),
 ];
 const insecureLocal = process.env.DATABASE_ALLOW_INSECURE_LOCAL?.trim().toLowerCase();
 if (insecureLocal && insecureLocal !== "true" && insecureLocal !== "false") {
@@ -34,7 +35,7 @@ try {
   for (const migrationUrl of migrationUrls) {
     await pool.query(await readFile(migrationUrl, "utf8"));
   }
-  process.stdout.write("PostgreSQL migrations 0001 through 0007 are ready.\n");
+  process.stdout.write("PostgreSQL migrations 0001 through 0008 are ready.\n");
 } finally {
   await pool.end();
 }

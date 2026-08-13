@@ -10,6 +10,7 @@ import {
   evaluationDatabase,
   requireEvaluation,
   requireCurrentEvaluationConsent,
+  STUDENT_UI_TASK_VERSION,
 } from "@/lib/evaluation";
 import { ApiError } from "@/lib/http";
 import { DEFAULT_QWEN_CHAT_MODEL } from "@/lib/qwen";
@@ -92,6 +93,10 @@ export async function advanceEvaluationDialogue(
   const scenario = SYNTHETIC_EVALUATION_CASES.find((item) => item.id === input.scenarioId);
   if (!scenario) throw new ApiError(404, "合成案例不存在。");
   const db = await evaluationDatabase();
+  const taskFeedback = await db.prepare(`SELECT actual_ease_score FROM evaluation_student_ui_task_feedback
+    WHERE participant_id=? AND task_version=?`).bind(participant.id, STUDENT_UI_TASK_VERSION)
+    .first<{ actual_ease_score: number }>();
+  if (!taskFeedback) throw new ApiError(409, "请先完成学生端 3 项微任务并立即评价实际易用性。");
   if (participant.role === "expert") {
     const reference = await db.prepare(`SELECT frozen_at FROM evaluation_expert_references
       WHERE participant_id=? AND scenario_id=?`).bind(participant.id, scenario.id)

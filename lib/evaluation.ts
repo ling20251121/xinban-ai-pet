@@ -28,8 +28,12 @@ import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
 import type { SystemDatabase } from "@/lib/database-types";
 
-export const EVALUATION_CONSENT_VERSION = "adult-evaluation-dialogue-2026-08-v2";
+export const EVALUATION_CONSENT_VERSION = "adult-evaluation-usability-2026-08-v3";
 export const STUDENT_UI_ITEMS_VERSION = "student-ui-formative-4-v1";
+export const STUDENT_UI_TASK_VERSION = "student-ui-task-v1";
+export const STUDENT_UI_TASK_IDS = ["mood_select", "fixed_expression", "support_tool"] as const;
+type StudentUiTaskId = (typeof STUDENT_UI_TASK_IDS)[number];
+const STUDENT_UI_UNABLE_REASONS = ["could_not_find", "unclear_instruction", "other_no_text"] as const;
 const COOKIE = "xinban_evaluation";
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
 const encoder = new TextEncoder();
@@ -115,6 +119,25 @@ const TABLES = [
     workload_score INTEGER NOT NULL CHECK (workload_score BETWEEN 0 AND 100),
     feedback TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS evaluation_student_ui_task_runs (
+    participant_id TEXT NOT NULL,
+    task_version TEXT NOT NULL,
+    task_id TEXT NOT NULL CHECK (task_id IN ('mood_select','fixed_expression','support_tool')),
+    status TEXT NOT NULL CHECK (status IN ('in_progress','success','unable')),
+    error_count INTEGER NOT NULL DEFAULT 0 CHECK (error_count BETWEEN 0 AND 20),
+    unable_reason TEXT CHECK (unable_reason IS NULL OR unable_reason IN ('could_not_find','unclear_instruction','other_no_text')),
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms BETWEEN 0 AND 604800000),
+    PRIMARY KEY(participant_id,task_version,task_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS evaluation_student_ui_task_feedback (
+    participant_id TEXT NOT NULL,
+    task_version TEXT NOT NULL,
+    actual_ease_score INTEGER NOT NULL CHECK (actual_ease_score BETWEEN 1 AND 5),
+    rated_at TEXT NOT NULL,
+    PRIMARY KEY(participant_id,task_version)
+  )`,
   `CREATE TABLE IF NOT EXISTS evaluation_dialogues (
     participant_id TEXT NOT NULL, scenario_id TEXT NOT NULL,
     dialogue_pack_version TEXT NOT NULL, dialogue_prompt_version TEXT NOT NULL,
@@ -133,6 +156,7 @@ const TABLES = [
   "CREATE INDEX IF NOT EXISTS idx_eval_response_participant ON evaluation_scenario_responses (participant_id,scenario_id)",
   "CREATE INDEX IF NOT EXISTS idx_eval_participant_role ON evaluation_participants (role,submitted_at)",
   "CREATE INDEX IF NOT EXISTS idx_eval_dialogue_participant ON evaluation_dialogues (participant_id,scenario_id)",
+  "CREATE INDEX IF NOT EXISTS idx_eval_student_ui_task_version ON evaluation_student_ui_task_runs (task_version,task_id,participant_id)",
 ] as const;
 
 const ready = new WeakMap<object, Promise<void>>();
@@ -302,7 +326,7 @@ export function publicEvaluationInformation() {
   }
   // Approval records and researcher identity stay in the controlled study file.
   // They are deliberately not returned by the public API during double-blind review.
-  return { retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、学生端只读原型、教师决策支持和安全边界", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的 AI 回应和本地安全接管结果，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
+  return { retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、学生端原型的代理评价与实际易用性任务、教师决策支持和安全边界；实际任务保存是否成功、错误尝试次数、完成用时和单独的实际易用性评分", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的 AI 回应和本地安全接管结果，并完成 3 项不接收自由文本的学生端模拟操作任务；系统会保存任务是否成功、错误尝试次数和完成用时，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
 }
 
 export async function startEvaluation(request: Request, input: {
@@ -365,7 +389,7 @@ export async function requireEvaluation(request: Request, updateLastSeen = true)
 
 export function requireCurrentEvaluationConsent(participant: ParticipantRow): void {
   if (participant.consent_version !== EVALUATION_CONSENT_VERSION) {
-    throw new ApiError(409, "评估说明已更新并新增多轮 Qwen 对话保存与评价。旧会话不能继续写入；请联系研究者领取新版访问码。你仍可撤回旧数据。");
+    throw new ApiError(409, "评估说明已更新并新增学生端实际易用性任务及其成功、错误尝试次数、完成用时和评分。旧会话不能继续写入；请联系研究者领取新版访问码。你仍可撤回旧数据。");
   }
 }
 
@@ -393,6 +417,25 @@ export async function evaluationState(request: Request) {
       must_revise,harm_flags_json,completed_at,rated_at
     FROM evaluation_dialogues WHERE participant_id=?`).bind(participant.id).all<Record<string, unknown>>();
   const dialogueMap = new Map(dialogueRows.results.map((row) => [String(row.scenario_id), row]));
+  const taskRows = await db.prepare(`SELECT task_id,status,error_count,unable_reason,started_at,completed_at,duration_ms
+    FROM evaluation_student_ui_task_runs WHERE participant_id=? AND task_version=? ORDER BY task_id`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION).all<Record<string, unknown>>();
+  const taskMap = new Map(taskRows.results.map((row) => [String(row.task_id), row]));
+  const taskRecords = STUDENT_UI_TASK_IDS.map((taskId) => {
+    const row = taskMap.get(taskId);
+    return {
+      taskId,
+      status: row ? String(row.status) : "not_started",
+      errorCount: Number(row?.error_count ?? 0),
+      startedAt: row?.started_at ?? null,
+      completedAt: row?.completed_at ?? null,
+      durationMs: row?.duration_ms == null ? null : Number(row.duration_ms),
+      unableReason: row?.unable_reason ?? null,
+    };
+  });
+  const taskFeedback = await db.prepare(`SELECT actual_ease_score,rated_at
+    FROM evaluation_student_ui_task_feedback WHERE participant_id=? AND task_version=?`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION).first<{ actual_ease_score: number; rated_at: string }>();
   const scenarios = SYNTHETIC_EVALUATION_CASES.map((scenario) => ({
     ...publicScenario(scenario, participant.role === "teacher" || referenceMap.has(scenario.id)),
     condition: participant.role === "expert" ? "expert_blind" : conditionFor(participant.sequence_group, scenario.order),
@@ -436,7 +479,14 @@ export async function evaluationState(request: Request) {
     },
     versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION, prompt: PROMPT_VERSION,
       dialoguePack: DIALOGUE_PACK_VERSION, dialoguePrompt: DIALOGUE_PROMPT_VERSION,
-      dialogueCases: DIALOGUE_EVALUATION_CASE_IDS },
+      dialogueCases: DIALOGUE_EVALUATION_CASE_IDS, studentUiTask: STUDENT_UI_TASK_VERSION },
+    studentUiTasks: {
+      version: STUDENT_UI_TASK_VERSION,
+      required: STUDENT_UI_TASK_IDS,
+      current: taskRecords.find((task) => task.status === "not_started" || task.status === "in_progress")?.taskId ?? null,
+      tasks: taskRecords,
+      feedback: taskFeedback ? { actualEaseScore: Number(taskFeedback.actual_ease_score), ratedAt: taskFeedback.rated_at } : null,
+    },
     scenarios,
     responses: responses.results,
     actionLabels: ACTION_LABELS,
@@ -451,10 +501,19 @@ export async function evaluationState(request: Request) {
   };
 }
 
+async function requireStudentUiTaskFeedback(participantId: string): Promise<void> {
+  const db = await evaluationDatabase();
+  const feedback = await db.prepare(`SELECT actual_ease_score FROM evaluation_student_ui_task_feedback
+    WHERE participant_id=? AND task_version=?`).bind(participantId, STUDENT_UI_TASK_VERSION)
+    .first<{ actual_ease_score: number }>();
+  if (!feedback) throw new ApiError(409, "请先完成学生端 3 项微任务并立即评价实际易用性。");
+}
+
 export async function freezeExpertReference(request: Request, input: Record<string, unknown>) {
   const participant = await requireEvaluation(request);
   requireCurrentEvaluationConsent(participant);
   if (participant.submitted_at) throw new ApiError(409, "评估已经提交，不能再修改。");
+  await requireStudentUiTaskFeedback(participant.id);
   if (participant.role !== "expert") throw new ApiError(403, "仅专家评估流需要冻结独立参考行动。");
   const scenario = SYNTHETIC_EVALUATION_CASES.find((item) => item.id === input.scenarioId);
   if (!scenario) throw new ApiError(404, "合成案例不存在。");
@@ -498,6 +557,7 @@ export async function saveScenarioResponse(request: Request, input: Record<strin
   }
   const chosenAction = actionValue(input.chosenAction);
   const db = await evaluationDatabase();
+  await requireStudentUiTaskFeedback(participant.id);
   const expertReference = participant.role === "expert"
     ? await db.prepare("SELECT reference_action FROM evaluation_expert_references WHERE participant_id=? AND scenario_id=?").bind(participant.id, scenario.id).first<{ reference_action: string }>()
     : null;
@@ -589,6 +649,120 @@ export async function saveScenarioResponse(request: Request, input: Record<strin
   return { saved: true, scenarioId: scenario.id };
 }
 
+export async function saveStudentUiTaskRun(request: Request, input: Record<string, unknown>) {
+  const participant = await requireEvaluation(request);
+  requireCurrentEvaluationConsent(participant);
+  if (participant.submitted_at) throw new ApiError(409, "评估已经提交，学生端任务记录已封存。");
+  const event = input.event;
+  const allowedKeys = new Set(event === "unable" ? ["kind", "event", "taskId", "unableReason"] : ["kind", "event", "taskId"]);
+  if (Object.keys(input).length !== allowedKeys.size || Object.keys(input).some((key) => !allowedKeys.has(key))) {
+    throw new ApiError(400, "学生端实际易用性任务只接收固定任务结果，不接收自由文本或其他字段。");
+  }
+  if (input.kind !== "student-ui-task") throw new ApiError(400, "学生端任务类型无效。");
+  if (!["start", "incorrect", "success", "unable"].includes(String(event))) throw new ApiError(400, "学生端任务事件无效。");
+  if (typeof input.taskId !== "string" || !STUDENT_UI_TASK_IDS.includes(input.taskId as StudentUiTaskId)) {
+    throw new ApiError(400, "学生端任务编号无效。");
+  }
+  const taskId = input.taskId as StudentUiTaskId;
+  const unableReason = event === "unable"
+    ? enumValue(input.unableReason, STUDENT_UI_UNABLE_REASONS, "请选择固定的无法完成原因。")
+    : null;
+  const db = await evaluationDatabase();
+  const rows = await db.prepare(`SELECT task_id,status,error_count,unable_reason,started_at,completed_at,duration_ms
+    FROM evaluation_student_ui_task_runs WHERE participant_id=? AND task_version=?`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION).all<Record<string, unknown>>();
+  const storedBefore = rows.results.find((row) => row.task_id === taskId);
+  const taskIndex = STUDENT_UI_TASK_IDS.indexOf(taskId);
+  const priorTerminal = STUDENT_UI_TASK_IDS.slice(0, taskIndex).every((priorId) => {
+    const prior = rows.results.find((row) => row.task_id === priorId);
+    return prior?.status === "success" || prior?.status === "unable";
+  });
+  if (!priorTerminal) throw new ApiError(409, "请按顺序完成学生端实际易用性任务。");
+  const now = new Date().toISOString();
+  let idempotent = false;
+  if (event === "start") {
+    if (storedBefore) {
+      if (storedBefore.status === "in_progress") idempotent = true;
+      else throw new ApiError(409, "该学生端任务结果已经封存，不能重新开始。");
+    } else {
+      const inserted = await db.prepare(`INSERT INTO evaluation_student_ui_task_runs
+        (participant_id,task_version,task_id,status,error_count,unable_reason,started_at,completed_at,duration_ms)
+        VALUES (?,?,?,'in_progress',0,NULL,?,NULL,NULL)
+        ON CONFLICT(participant_id,task_version,task_id) DO NOTHING`)
+        .bind(participant.id, STUDENT_UI_TASK_VERSION, taskId, now).run();
+      idempotent = Number(inserted.meta.changes ?? 0) === 0;
+    }
+  } else {
+    if (!storedBefore) throw new ApiError(409, "请先开始当前学生端任务。");
+    if (storedBefore.status === "success" || storedBefore.status === "unable") {
+      const sameTerminal = storedBefore.status === event && (event !== "unable" || storedBefore.unable_reason === unableReason);
+      if (!sameTerminal) throw new ApiError(409, "该学生端任务结果已经封存，不能修改。");
+      idempotent = true;
+    } else if (event === "incorrect") {
+      const result = await db.prepare(`UPDATE evaluation_student_ui_task_runs SET error_count=error_count+1
+        WHERE participant_id=? AND task_version=? AND task_id=? AND status='in_progress' AND error_count<20`)
+        .bind(participant.id, STUDENT_UI_TASK_VERSION, taskId).run();
+      if (Number(result.meta.changes ?? 0) !== 1) throw new ApiError(409, "当前任务错误次数已达到记录上限。");
+    } else {
+      const startedAtMs = Date.parse(String(storedBefore.started_at));
+      const durationMs = Math.max(0, Math.min(604_800_000, Date.parse(now) - startedAtMs));
+      const result = await db.prepare(`UPDATE evaluation_student_ui_task_runs
+        SET status=?,unable_reason=?,completed_at=?,duration_ms=?
+        WHERE participant_id=? AND task_version=? AND task_id=? AND status='in_progress'`)
+        .bind(event, unableReason, now, durationMs, participant.id, STUDENT_UI_TASK_VERSION, taskId).run();
+      if (Number(result.meta.changes ?? 0) !== 1) {
+        const concurrent = await db.prepare(`SELECT status,unable_reason FROM evaluation_student_ui_task_runs
+          WHERE participant_id=? AND task_version=? AND task_id=?`)
+          .bind(participant.id, STUDENT_UI_TASK_VERSION, taskId).first<Record<string, unknown>>();
+        if (concurrent && concurrent.status === event && (event !== "unable" || concurrent.unable_reason === unableReason)) idempotent = true;
+        else throw new ApiError(409, "该学生端任务状态已变化，请刷新后继续。");
+      }
+    }
+  }
+  const stored = await db.prepare(`SELECT status,error_count,unable_reason,started_at,completed_at,duration_ms
+    FROM evaluation_student_ui_task_runs WHERE participant_id=? AND task_version=? AND task_id=?`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION, taskId)
+    .first<Record<string, unknown>>();
+  if (!stored) throw new ApiError(500, "学生端任务状态保存失败。");
+  return {
+    saved: true,
+    idempotent,
+    task: { taskId, status: stored.status, errorCount: Number(stored.error_count), startedAt: stored.started_at,
+      completedAt: stored.completed_at, durationMs: stored.duration_ms == null ? null : Number(stored.duration_ms),
+      unableReason: stored.unable_reason },
+  };
+}
+
+export async function saveStudentUiTaskRating(request: Request, input: Record<string, unknown>) {
+  const participant = await requireEvaluation(request);
+  requireCurrentEvaluationConsent(participant);
+  if (participant.submitted_at) throw new ApiError(409, "评估已经提交，学生端任务评分已封存。");
+  const allowedKeys = new Set(["kind", "score"]);
+  if (input.kind !== "student-ui-task-rating" || Object.keys(input).length !== allowedKeys.size ||
+    Object.keys(input).some((key) => !allowedKeys.has(key))) {
+    throw new ApiError(400, "学生端实际易用性评分只接收固定的 1–5 分值。");
+  }
+  const score = likert(input.score);
+  const db = await evaluationDatabase();
+  const terminal = await db.prepare(`SELECT COUNT(*) count FROM evaluation_student_ui_task_runs
+    WHERE participant_id=? AND task_version=? AND status IN ('success','unable')`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION).first<{ count: number }>();
+  if (Number(terminal?.count ?? 0) !== STUDENT_UI_TASK_IDS.length) {
+    throw new ApiError(409, "请先完成或标记无法完成全部 3 项学生端微任务。");
+  }
+  const ratedAt = new Date().toISOString();
+  const inserted = await db.prepare(`INSERT INTO evaluation_student_ui_task_feedback
+    (participant_id,task_version,actual_ease_score,rated_at) VALUES (?,?,?,?)
+    ON CONFLICT(participant_id,task_version) DO NOTHING`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION, score, ratedAt).run();
+  const stored = await db.prepare(`SELECT actual_ease_score,rated_at FROM evaluation_student_ui_task_feedback
+    WHERE participant_id=? AND task_version=?`).bind(participant.id, STUDENT_UI_TASK_VERSION)
+    .first<{ actual_ease_score: number; rated_at: string }>();
+  if (!stored || Number(stored.actual_ease_score) !== score) throw new ApiError(409, "实际易用性评分已经封存，不能修改。");
+  return { saved: true, idempotent: Number(inserted.meta.changes ?? 0) === 0,
+    feedback: { actualEaseScore: Number(stored.actual_ease_score), ratedAt: stored.rated_at } };
+}
+
 function likert(value: unknown): number {
   const score = Number(value);
   if (!Number.isInteger(score) || score < 1 || score > 5) throw new ApiError(400, "请完成 1–5 分量表。");
@@ -617,6 +791,13 @@ export async function submitSurvey(request: Request, input: Record<string, unkno
   if (Number(dialogueCompleted?.count ?? 0) !== DIALOGUE_EVALUATION_CASE_IDS.length) {
     throw new ApiError(409, "请先完成并评价 5 个固定合成多轮对话案例。");
   }
+  const taskCompleted = await db.prepare(`SELECT COUNT(*) count FROM evaluation_student_ui_task_runs
+    WHERE participant_id=? AND task_version=? AND status IN ('success','unable')`)
+    .bind(participant.id, STUDENT_UI_TASK_VERSION).first<{ count: number }>();
+  if (Number(taskCompleted?.count ?? 0) !== STUDENT_UI_TASK_IDS.length) {
+    throw new ApiError(409, "请先完成 3 项学生端实际易用性任务。");
+  }
+  await requireStudentUiTaskFeedback(participant.id);
   const now = new Date().toISOString();
   const workload = Number(input.workload);
   if (!Number.isInteger(workload) || workload < 0 || workload > 100) throw new ApiError(400, "工作负荷需为 0–100 的整数。");
@@ -624,26 +805,37 @@ export async function submitSurvey(request: Request, input: Record<string, unkno
   const studentUiPotentialUsefulness = likert(input.studentUiPotentialUsefulness);
   const studentUiPerceivedComprehensibility = likert(input.studentUiPerceivedComprehensibility);
   const studentUiAgeContextFit = likert(input.studentUiAgeContextFit);
-  await db.prepare(`INSERT INTO evaluation_surveys
+  const feedback = boundedText(input.feedback, 500, false);
+  const surveyStatement = db.prepare(`INSERT INTO evaluation_surveys
     (participant_id,sus_json,trust_score,appropriateness_score,usability_score,safety_boundary_score,
       student_ui_presentation_fidelity_score,student_ui_potential_usefulness_score,
       student_ui_perceived_comprehensibility_score,student_ui_age_context_fit_score,student_ui_items_version,
       workload_score,feedback,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(participant_id) DO UPDATE SET
-      sus_json=excluded.sus_json,trust_score=excluded.trust_score,
-      appropriateness_score=excluded.appropriateness_score,usability_score=excluded.usability_score,
-      safety_boundary_score=excluded.safety_boundary_score,
-      student_ui_presentation_fidelity_score=excluded.student_ui_presentation_fidelity_score,
-      student_ui_potential_usefulness_score=excluded.student_ui_potential_usefulness_score,
-      student_ui_perceived_comprehensibility_score=excluded.student_ui_perceived_comprehensibility_score,
-      student_ui_age_context_fit_score=excluded.student_ui_age_context_fit_score,
-      student_ui_items_version=excluded.student_ui_items_version,
-      workload_score=excluded.workload_score,feedback=excluded.feedback,updated_at=excluded.updated_at`)
+    SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,? FROM evaluation_participants
+    WHERE id=? AND submitted_at IS NULL`)
     .bind(participant.id, JSON.stringify(sus), likert(input.trust), likert(input.appropriateness),
       likert(input.usability), likert(input.safetyBoundary), studentUiPresentationFidelity,
       studentUiPotentialUsefulness, studentUiPerceivedComprehensibility, studentUiAgeContextFit,
-      STUDENT_UI_ITEMS_VERSION, workload, boundedText(input.feedback, 500, false), now, now).run();
-  await db.prepare("UPDATE evaluation_participants SET submitted_at=? WHERE id=?").bind(now, participant.id).run();
+      STUDENT_UI_ITEMS_VERSION, workload, feedback, now, now, participant.id);
+  let results;
+  try {
+    results = await db.batch([
+      surveyStatement,
+      db.prepare("UPDATE evaluation_participants SET submitted_at=? WHERE id=? AND submitted_at IS NULL")
+        .bind(now, participant.id),
+    ]);
+  } catch (error) {
+    const sealed = await db.prepare(`SELECT p.submitted_at,s.participant_id survey_participant_id
+      FROM evaluation_participants p LEFT JOIN evaluation_surveys s ON s.participant_id=p.id WHERE p.id=?`)
+      .bind(participant.id).first<{ submitted_at: string | null; survey_participant_id: string | null }>();
+    if (sealed?.submitted_at || sealed?.survey_participant_id) {
+      throw new ApiError(409, "评估已经提交，首次问卷已封存，不能覆盖。");
+    }
+    throw error;
+  }
+  if (Number(results[0]?.meta.changes ?? 0) !== 1 || Number(results[1]?.meta.changes ?? 0) !== 1) {
+    throw new ApiError(409, "评估已经提交，首次问卷已封存，不能覆盖。");
+  }
   return { submitted: true, participantCode: participant.participant_code };
 }
 
@@ -652,6 +844,8 @@ export async function withdrawEvaluation(request: Request): Promise<void> {
   const db = await evaluationDatabase();
   await db.batch([
     db.prepare("DELETE FROM evaluation_surveys WHERE participant_id=?").bind(participant.id),
+    db.prepare("DELETE FROM evaluation_student_ui_task_feedback WHERE participant_id=?").bind(participant.id),
+    db.prepare("DELETE FROM evaluation_student_ui_task_runs WHERE participant_id=?").bind(participant.id),
     db.prepare("DELETE FROM evaluation_scenario_responses WHERE participant_id=?").bind(participant.id),
     db.prepare("DELETE FROM evaluation_dialogues WHERE participant_id=?").bind(participant.id),
     db.prepare("DELETE FROM evaluation_expert_references WHERE participant_id=?").bind(participant.id),
@@ -680,6 +874,14 @@ type AggregateRow = {
   avg_student_ui_potential_usefulness: number | null;
   avg_student_ui_perceived_comprehensibility: number | null;
   avg_student_ui_age_context_fit: number | null;
+  actual_ease_n: number;
+  avg_student_ui_actual_ease: number | null;
+};
+
+type StudentUiTaskAggregateRow = {
+  role: EvaluatorRole; task_id: StudentUiTaskId; n_started: number; n_terminal: number;
+  n_success: number; n_unable: number; terminal_success_rate: number | null;
+  avg_error_count: number | null; avg_duration_ms: number | null;
 };
 
 function numericOrNull(value: unknown): number | null {
@@ -696,15 +898,21 @@ export async function researchSummary(request: Request) {
     ), response_by_participant AS (
       SELECT participant_id, AVG(decision_time_ms) avg_time_ms
       FROM evaluation_scenario_responses GROUP BY participant_id
+    ), task_completion AS (
+      SELECT participant_id,COUNT(*) completed_tasks
+      FROM evaluation_student_ui_task_runs WHERE task_version=? AND status IN ('success','unable') GROUP BY participant_id
     ), participant_metrics AS (
       SELECT p.id,p.role,p.submitted_at,r.avg_time_ms,
         s.trust_score,s.appropriateness_score,s.usability_score,s.safety_boundary_score,s.workload_score,
         s.student_ui_presentation_fidelity_score,s.student_ui_potential_usefulness_score,
         s.student_ui_perceived_comprehensibility_score,s.student_ui_age_context_fit_score,
-        s.student_ui_items_version
+        s.student_ui_items_version,f.actual_ease_score student_ui_actual_ease_score,
+        COALESCE(tc.completed_tasks,0) completed_tasks
       FROM evaluation_participants p
       LEFT JOIN response_by_participant r ON r.participant_id=p.id
       LEFT JOIN evaluation_surveys s ON s.participant_id=p.id
+      LEFT JOIN evaluation_student_ui_task_feedback f ON f.participant_id=p.id AND f.task_version=?
+      LEFT JOIN task_completion tc ON tc.participant_id=p.id
       WHERE p.data_deleted_at IS NULL
     ) SELECT role,COUNT(*) participants,
       SUM(CASE WHEN submitted_at IS NOT NULL THEN 1 ELSE 0 END) completed,
@@ -726,9 +934,26 @@ export async function researchSummary(request: Request) {
       AVG(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
         THEN student_ui_perceived_comprehensibility_score END) avg_student_ui_perceived_comprehensibility,
       AVG(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
-        THEN student_ui_age_context_fit_score END) avg_student_ui_age_context_fit
+        THEN student_ui_age_context_fit_score END) avg_student_ui_age_context_fit,
+      SUM(CASE WHEN completed_tasks=?
+        AND student_ui_actual_ease_score IS NOT NULL THEN 1 ELSE 0 END) actual_ease_n,
+      AVG(CASE WHEN completed_tasks=?
+        THEN student_ui_actual_ease_score END) avg_student_ui_actual_ease
     FROM participant_metrics CROSS JOIN current_version GROUP BY role`)
-    .bind(STUDENT_UI_ITEMS_VERSION).all<AggregateRow>();
+    .bind(STUDENT_UI_ITEMS_VERSION, STUDENT_UI_TASK_VERSION, STUDENT_UI_TASK_VERSION,
+      STUDENT_UI_TASK_IDS.length, STUDENT_UI_TASK_IDS.length).all<AggregateRow>();
+  const taskRows = await db.prepare(`SELECT p.role,t.task_id,COUNT(*) n_started,
+      SUM(CASE WHEN t.status IN ('success','unable') THEN 1 ELSE 0 END) n_terminal,
+      SUM(CASE WHEN t.status='success' THEN 1 ELSE 0 END) n_success,
+      SUM(CASE WHEN t.status='unable' THEN 1 ELSE 0 END) n_unable,
+      AVG(CASE WHEN t.status IN ('success','unable') THEN t.error_count END) avg_error_count,
+      AVG(CASE WHEN t.status IN ('success','unable') THEN t.duration_ms END) avg_duration_ms,
+      AVG(CASE WHEN t.status IN ('success','unable') THEN CASE WHEN t.status='success' THEN 1.0 ELSE 0.0 END END) terminal_success_rate
+    FROM evaluation_student_ui_task_runs t
+    INNER JOIN evaluation_participants p ON p.id=t.participant_id
+    WHERE t.task_version=? AND p.consent_version=? AND p.data_deleted_at IS NULL
+    GROUP BY p.role,t.task_id ORDER BY p.role,t.task_id`)
+    .bind(STUDENT_UI_TASK_VERSION, EVALUATION_CONSENT_VERSION).all<StudentUiTaskAggregateRow>();
   const susRows = await db.prepare("SELECT participant_id,sus_json FROM evaluation_surveys").all<{ participant_id: string; sus_json: string }>();
   const susByParticipant = new Map(susRows.results.map((row) => {
     try { return [row.participant_id, calculateSus(JSON.parse(row.sus_json) as number[])] as const; }
@@ -745,6 +970,24 @@ export async function researchSummary(request: Request) {
     const sus = susByRole.get(row.role) ?? [];
     const studentUiN = Number(row.student_ui_n ?? 0);
     const studentUiVisible = studentUiN >= 5;
+    const actualEaseN = Number(row.actual_ease_n ?? 0);
+    const actualEaseVisible = actualEaseN >= 5;
+    const taskMetrics = STUDENT_UI_TASK_IDS.map((taskId) => {
+      const metric = taskRows.results.find((item) => item.role === row.role && item.task_id === taskId);
+      const terminalN = Number(metric?.n_terminal ?? 0);
+      const visible = terminalN >= 5;
+      return {
+        task_id: taskId,
+        n_started: visible ? Number(metric?.n_started ?? 0) : null,
+        n_terminal: visible ? terminalN : null,
+        n_success: visible ? Number(metric?.n_success ?? 0) : null,
+        n_unable: visible ? Number(metric?.n_unable ?? 0) : null,
+        suppressed: !visible,
+        terminal_success_rate: visible ? numericOrNull(metric?.terminal_success_rate) : null,
+        avg_error_count: visible ? numericOrNull(metric?.avg_error_count) : null,
+        avg_duration_ms: visible ? numericOrNull(metric?.avg_duration_ms) : null,
+      };
+    });
     return {
       role: row.role,
       participants: Number(row.participants),
@@ -762,6 +1005,12 @@ export async function researchSummary(request: Request) {
       avg_student_ui_potential_usefulness: studentUiVisible ? numericOrNull(row.avg_student_ui_potential_usefulness) : null,
       avg_student_ui_perceived_comprehensibility: studentUiVisible ? numericOrNull(row.avg_student_ui_perceived_comprehensibility) : null,
       avg_student_ui_age_context_fit: studentUiVisible ? numericOrNull(row.avg_student_ui_age_context_fit) : null,
+      student_ui_actual_ease_n: actualEaseVisible ? actualEaseN : null,
+      student_ui_actual_ease_suppressed: !actualEaseVisible,
+      avg_student_ui_actual_ease: actualEaseVisible ? numericOrNull(row.avg_student_ui_actual_ease) : null,
+      student_ui_task_metrics: taskMetrics,
+      student_ui_task_metric_scope: "all_current_v3_participants_with_started_microtasks; terminal_success_rate uses terminal outcomes only",
+      student_ui_actual_ease_scope: "all_current_v3_participants_with_immediate_task_feedback",
     };
   });
   const participantCount = groups.reduce((sum, row) => sum + row.participants, 0);
@@ -775,7 +1024,7 @@ export async function researchSummary(request: Request) {
     versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION,
       prompt: PROMPT_VERSION, dialoguePack: DIALOGUE_PACK_VERSION,
       dialoguePrompt: DIALOGUE_PROMPT_VERSION, dialogueCases: DIALOGUE_EVALUATION_CASE_IDS,
-      studentUiItems: STUDENT_UI_ITEMS_VERSION },
+      studentUiItems: STUDENT_UI_ITEMS_VERSION, studentUiTask: STUDENT_UI_TASK_VERSION },
   };
 }
 
@@ -803,6 +1052,17 @@ export async function researchCsv(request: Request): Promise<string> {
       s.sus_json,s.trust_score,s.appropriateness_score,s.usability_score,s.safety_boundary_score,
       s.student_ui_presentation_fidelity_score,s.student_ui_potential_usefulness_score,
       s.student_ui_perceived_comprehensibility_score,s.student_ui_age_context_fit_score,s.student_ui_items_version,
+      f.actual_ease_score student_ui_actual_ease_score,f.rated_at student_ui_task_rated_at,
+      COALESCE(t_mood.task_version,t_expression.task_version,t_support.task_version) student_ui_task_version,
+      t_mood.status mood_select_status,t_mood.error_count mood_select_error_count,
+      t_mood.unable_reason mood_select_unable_reason,t_mood.started_at mood_select_started_at,
+      t_mood.duration_ms mood_select_duration_ms,t_mood.completed_at mood_select_completed_at,
+      t_expression.status fixed_expression_status,t_expression.error_count fixed_expression_error_count,
+      t_expression.unable_reason fixed_expression_unable_reason,t_expression.started_at fixed_expression_started_at,
+      t_expression.duration_ms fixed_expression_duration_ms,t_expression.completed_at fixed_expression_completed_at,
+      t_support.status support_tool_status,t_support.error_count support_tool_error_count,
+      t_support.unable_reason support_tool_unable_reason,t_support.started_at support_tool_started_at,
+      t_support.duration_ms support_tool_duration_ms,t_support.completed_at support_tool_completed_at,
       s.workload_score,s.feedback
     FROM evaluation_participants p
     LEFT JOIN (
@@ -814,7 +1074,33 @@ export async function researchCsv(request: Request): Promise<string> {
     LEFT JOIN evaluation_expert_references er ON er.participant_id=p.id AND er.scenario_id=cases.scenario_id
     LEFT JOIN evaluation_dialogues d ON d.participant_id=p.id AND d.scenario_id=cases.scenario_id
     LEFT JOIN evaluation_surveys s ON s.participant_id=p.id
-    WHERE p.data_deleted_at IS NULL ORDER BY p.participant_code,COALESCE(r.scenario_id,er.scenario_id,d.scenario_id)`).all<Record<string, unknown>>();
-  const headers = ["participant_code","role","experience_band","sequence_group","consent_version","quote_consent","scenario_pack_version","output_version","prompt_version","started_at","submitted_at","scenario_id","study_condition","chosen_action","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","decision_time_ms","updated_at","reference_action","reference_evidence_json","reference_context_judgment","reference_reason_codes_json","reference_privacy_choice","reference_confidence","frozen_at","dialogue_pack_version","dialogue_prompt_version","dialogue_model_id","dialogue_status","dialogue_next_turn","dialogue_transcript_json","dialogue_provider_metadata_json","dialogue_total_latency_ms","dialogue_safety_ended","dialogue_rating_json","dialogue_must_revise","dialogue_harm_flags_json","dialogue_started_at","dialogue_completed_at","dialogue_rated_at","sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score","student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score","student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version","workload_score","feedback"];
-  return `\uFEFF${headers.join(",")}\n${rows.results.map((row) => headers.map((key) => csvCell(row[key])).join(",")).join("\n")}`;
+    LEFT JOIN evaluation_student_ui_task_feedback f ON f.participant_id=p.id AND f.task_version=?
+    LEFT JOIN evaluation_student_ui_task_runs t_mood ON t_mood.participant_id=p.id
+      AND t_mood.task_version=? AND t_mood.task_id=?
+    LEFT JOIN evaluation_student_ui_task_runs t_expression ON t_expression.participant_id=p.id
+      AND t_expression.task_version=? AND t_expression.task_id=?
+    LEFT JOIN evaluation_student_ui_task_runs t_support ON t_support.participant_id=p.id
+      AND t_support.task_version=? AND t_support.task_id=?
+    WHERE p.data_deleted_at IS NULL ORDER BY p.participant_code,COALESCE(r.scenario_id,er.scenario_id,d.scenario_id)`)
+    .bind(STUDENT_UI_TASK_VERSION, STUDENT_UI_TASK_VERSION, "mood_select", STUDENT_UI_TASK_VERSION, "fixed_expression",
+      STUDENT_UI_TASK_VERSION, "support_tool").all<Record<string, unknown>>();
+  const headers = ["participant_code","role","experience_band","sequence_group","consent_version","quote_consent","scenario_pack_version","output_version","prompt_version","started_at","submitted_at","scenario_id","study_condition","chosen_action","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","decision_time_ms","updated_at","reference_action","reference_evidence_json","reference_context_judgment","reference_reason_codes_json","reference_privacy_choice","reference_confidence","frozen_at","dialogue_pack_version","dialogue_prompt_version","dialogue_model_id","dialogue_status","dialogue_next_turn","dialogue_transcript_json","dialogue_provider_metadata_json","dialogue_total_latency_ms","dialogue_safety_ended","dialogue_rating_json","dialogue_must_revise","dialogue_harm_flags_json","dialogue_started_at","dialogue_completed_at","dialogue_rated_at","sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score","student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score","student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version","student_ui_actual_ease_score","student_ui_task_rated_at","student_ui_task_version","mood_select_status","mood_select_error_count","mood_select_unable_reason","mood_select_started_at","mood_select_duration_ms","mood_select_completed_at","fixed_expression_status","fixed_expression_error_count","fixed_expression_unable_reason","fixed_expression_started_at","fixed_expression_duration_ms","fixed_expression_completed_at","support_tool_status","support_tool_error_count","support_tool_unable_reason","support_tool_started_at","support_tool_duration_ms","support_tool_completed_at","workload_score","feedback"];
+  const participantOnly = new Set(["sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score",
+    "student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score",
+    "student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version",
+    "student_ui_actual_ease_score","student_ui_task_rated_at","student_ui_task_version",
+    "mood_select_status","mood_select_error_count","mood_select_unable_reason","mood_select_started_at",
+    "mood_select_duration_ms","mood_select_completed_at","fixed_expression_status","fixed_expression_error_count",
+    "fixed_expression_unable_reason","fixed_expression_started_at","fixed_expression_duration_ms","fixed_expression_completed_at",
+    "support_tool_status","support_tool_error_count","support_tool_unable_reason","support_tool_started_at",
+    "support_tool_duration_ms","support_tool_completed_at","workload_score","feedback"]);
+  const outputHeaders = ["participant_record", ...headers];
+  const seen = new Set<string>();
+  const lines = rows.results.map((row) => {
+    const participantCode = String(row.participant_code ?? "");
+    const first = !seen.has(participantCode);
+    seen.add(participantCode);
+    return [csvCell(first ? 1 : 0), ...headers.map((key) => csvCell(!first && participantOnly.has(key) ? null : row[key]))].join(",");
+  });
+  return `\uFEFF${outputHeaders.join(",")}\n${lines.join("\n")}`;
 }

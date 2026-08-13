@@ -12,12 +12,26 @@ type Group = {
   avg_student_ui_potential_usefulness: number | null;
   avg_student_ui_perceived_comprehensibility: number | null;
   avg_student_ui_age_context_fit: number | null;
+  student_ui_actual_ease_n: number | null; student_ui_actual_ease_suppressed: boolean;
+  avg_student_ui_actual_ease: number | null;
+  student_ui_task_metrics: Array<{
+    task_id: "mood_select" | "fixed_expression" | "support_tool";
+    n_started: number | null; n_terminal: number | null; n_success: number | null; n_unable: number | null;
+    suppressed: boolean; terminal_success_rate: number | null;
+    avg_error_count: number | null; avg_duration_ms: number | null;
+  }>;
 };
 type Summary = {
   participantCount: number; completedCount: number; minimumGroupSize: number;
   groups: Group[]; suppressedGroups: Array<"teacher" | "expert">;
-  versions: { scenarioPack: string; output: string; prompt: string; studentUiItems: string };
+  versions: { scenarioPack: string; output: string; prompt: string; studentUiItems: string; studentUiTask: string };
 };
+
+const TASK_LABELS = {
+  mood_select: "选择固定合成心情",
+  fixed_expression: "发送固定合成表达",
+  support_tool: "打开并使用呼吸工具",
+} as const;
 
 export default function ResearchDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -115,14 +129,31 @@ export default function ResearchDashboard() {
                 <div><dt>学生端潜在有用性</dt><dd>{score(group.avg_student_ui_potential_usefulness)}</dd></div>
                 <div><dt>学生端感知可理解性</dt><dd>{score(group.avg_student_ui_perceived_comprehensibility)}</dd></div>
                 <div><dt>学生端年龄/情境适配</dt><dd>{score(group.avg_student_ui_age_context_fit)}</dd></div>
+                <div><dt>即时实际易用性有效评分</dt><dd>{group.student_ui_actual_ease_n ?? "少于 5，已隐藏"}</dd></div>
+                <div><dt>隔离合成任务实际易用性</dt><dd>{score(group.avg_student_ui_actual_ease)}</dd></div>
               </dl>
               {group.student_ui_suppressed && <p className="privacy-note">学生端专项评价少于 5 份，已单独抑制。</p>}
+              {group.student_ui_actual_ease_suppressed && <p className="privacy-note">学生端即时实际易用性评分少于 5 份，已单独抑制。</p>}
+              <div className="task-metric-list">
+                <h4>学生端隔离合成微任务</h4>
+                <p className="privacy-note">成功率以达到成功或无法完成终态的人数为分母；开始后未到终态者另计，不与 12 个案例重复计数。</p>
+                {group.student_ui_task_metrics.map((task) => <article key={task.task_id}>
+                  <strong>{TASK_LABELS[task.task_id]}</strong>
+                  {task.suppressed ? <span>终态少于 5 人，已隐藏</span> : <dl>
+                    <div><dt>开始 / 终态</dt><dd>{task.n_started} / {task.n_terminal}</dd></div>
+                    <div><dt>成功 / 无法完成</dt><dd>{task.n_success} / {task.n_unable}</dd></div>
+                    <div><dt>终态成功率</dt><dd>{percent(task.terminal_success_rate)}</dd></div>
+                    <div><dt>平均错误尝试</dt><dd>{metric(task.avg_error_count, " 次")}</dd></div>
+                    <div><dt>平均经过时间</dt><dd>{duration(task.avg_duration_ms)}</dd></div>
+                  </dl>}
+                </article>)}
+              </div>
             </article>)}</div>}
           {summary.suppressedGroups.length > 0 && <p className="privacy-note">
             已隐藏小样本分组：{summary.suppressedGroups.map((role) => role === "teacher" ? "教师" : "专家").join("、")}。
           </p>}
         </section>
-        <footer className="version-note">案例包：{summary.versions.scenarioPack} · 冻结输出：{summary.versions.output} · 提示版本：{summary.versions.prompt} · 学生端自编代理条目：{summary.versions.studentUiItems}</footer>
+        <footer className="version-note">案例包：{summary.versions.scenarioPack} · 冻结输出：{summary.versions.output} · 提示版本：{summary.versions.prompt} · 学生端自编代理条目：{summary.versions.studentUiItems} · 隔离微任务：{summary.versions.studentUiTask}</footer>
       </>}
     </main>
   );
@@ -134,4 +165,12 @@ function score(value: number | null) {
 
 function metric(value: number | null, suffix: string) {
   return value == null ? "—" : Number(value).toFixed(1) + suffix;
+}
+
+function percent(value: number | null) {
+  return value == null ? "—" : (Number(value) * 100).toFixed(1) + "%";
+}
+
+function duration(value: number | null) {
+  return value == null ? "—" : (Number(value) / 1000).toFixed(1) + " 秒";
 }

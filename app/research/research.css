@@ -23,6 +23,11 @@ button:disabled { opacity: .55; cursor: wait; }
 .section-head p { margin: 0; color: #686783; }
 .group-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 20px; }
 .group-grid article { padding: 20px; border-radius: 18px; background: #f8f7ff; }
+.task-metric-list { margin-top: 18px; padding-top: 16px; border-top: 1px solid #dcd6f4; }
+.task-metric-list h4 { margin: 0 0 6px; }
+.task-metric-list > article { margin-top: 10px; padding: 14px; background: #fff; border: 1px solid #e3def6; }
+.task-metric-list > article > span { display: block; margin-top: 6px; color: #686783; }
+.task-metric-list dl { margin-top: 8px; }
 dl { margin: 0; } dl div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e5e1f6; }
 dt { color: #686783; } dd { margin: 0; font-weight: 800; }
 .empty-state { margin-top: 20px; padding: 28px; border-radius: 18px; text-align: center; background: #f8f7ff; }

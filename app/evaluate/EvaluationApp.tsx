@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import StudentPrototypeTask, { type StudentUiTaskCommand, type StudentUiTaskState } from "./StudentPrototypeTask";
 
 type Role = "teacher" | "expert";
 type FrozenOutput = { status: string; emotion: string; need: string; evidence: string; alert: string; suggestion: string; safetyNote: string };
@@ -32,6 +33,7 @@ type StudyInfo = {
 type State = {
   participant: { code: string; role: Role; experienceBand: string; submitted: boolean };
   scenarios: Scenario[];
+  studentUiTasks: StudentUiTaskState;
   actionLabels: Record<string, string>;
   optionLabels: {
     evidence: Record<string, string>; context: Record<string, string>;
@@ -285,6 +287,16 @@ export default function EvaluationApp() {
     } catch (value) { setError(value instanceof Error ? value.message : "问卷提交失败。"); }
   }
 
+  async function saveStudentUiTask(command: StudentUiTaskCommand) {
+    await api("/api/evaluation/response", post({ kind: "student-ui-task", ...command }));
+    await load();
+  }
+
+  async function rateStudentUiTask(score: number) {
+    await api("/api/evaluation/response", post({ kind: "student-ui-task-rating", score }));
+    await load();
+  }
+
   async function withdraw() {
     if (!window.confirm("撤回将永久删除本编号的案例回答和问卷，且无法恢复。确认继续？")) return;
     try { await api("/api/evaluation/withdraw", { method: "DELETE" }); setState(null); setNotice("研究数据已撤回并删除。"); }
@@ -332,7 +344,7 @@ export default function EvaluationApp() {
           <div className="consent-checks" aria-label="参与确认">
             <label className="check"><input type="checkbox" name="adultConfirmed" required />我确认已满 18 周岁。</label>
             <label className="check"><input type="checkbox" name="syntheticOnlyConfirmed" required /><span>我理解全部案例均为合成情境，并承诺<strong>不输入真实学生信息</strong>。</span></label>
-            <label className="check"><input type="checkbox" name="dataUseConfirmed" required />我同意将案例判断、实际生成的 AI 回应和本地安全接管结果、模型/提示版本、评分、用时、量表和可选反馈用于去标识研究汇总。</label>
+            <label className="check"><input type="checkbox" name="dataUseConfirmed" required />我同意将案例判断、实际生成的 AI 回应和本地安全接管结果、模型/提示版本、量表和可选反馈，以及 3 项学生端合成任务的成功／无法完成状态、错误尝试次数、服务端计时和实际易用性单项评分，用于去标识研究汇总。</label>
             <label className="check"><input type="checkbox" name="voluntaryConfirmed" required />我自愿参加，并理解可以按页面说明退出或撤回。</label>
           </div>
           <label className="check optional"><input type="checkbox" name="quoteConsent" />可选：允许研究者在去标识后逐字引用我的文字反馈（拒绝不影响参与）。</label>
@@ -343,7 +355,14 @@ export default function EvaluationApp() {
   </main>;
 
   const completed = state.scenarios.filter((item) => item.completed).length;
-  if (completed === 12 && !state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>12 个合成案例已完成</h1></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card"><h2>最后的使用体验问卷</h2><form onSubmit={submitSurvey} className="survey"><fieldset><legend>学生端只读原型专项评价（1=非常不同意，5=非常同意）</legend><p className="method-note">以下 4 项是形成性自编代理条目，不是经验证量表，不代表真实学生体验、心理改善或实际操作易用性。请只根据 12 个案例中展示的只读原型作答。</p>{Object.entries(STUDENT_UI_ITEMS).map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>SUS 系统可用性量表</legend><p className="method-note">SUS 只评价你作为成年评估者完成本评估工具流程时的感知可用性，不评价学生端实际使用体验。</p>{SUS.map((question, index) => <label key={question}>{index + 1}. {question}<select name={`sus${index}`} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>总体评价（1=非常不同意，5=非常同意）</legend>{[["trust","我能适度信任系统而不会盲从。"],["appropriateness","建议行动符合中国学校情境且适度。"],["usability","教师/专家界面清晰且可用。"],["safetyBoundary","系统清楚守住安全、隐私与人工决策边界。"]].map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><label>完成全部任务时的工作负荷（0=几乎没有，100=非常高）<input name="workload" type="number" min="0" max="100" step="1" required /></label><label>可选反馈（禁止填写真实个人或学校信息）<textarea name="feedback" maxLength={500} /></label><button type="submit">提交匿名评估</button></form>{notice && <p className="success">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section></main>;
+  const studentTasksTerminal = state.studentUiTasks.required.every((taskId) => {
+    const status = state.studentUiTasks.tasks.find((task) => task.taskId === taskId)?.status;
+    return status === "success" || status === "unable";
+  });
+  if ((!studentTasksTerminal || !state.studentUiTasks.feedback) && !state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>先体验学生端固定操作</h1><p>完成或如实标记无法完成并立即评分后，再进入 12 个合成案例；刷新页面可从当前任务继续。</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><StudentPrototypeTask state={state.studentUiTasks} onTaskEvent={saveStudentUiTask} onRate={rateStudentUiTask} />{notice && <p className="success eval-inline-notice">{notice}</p>}{error && <p role="alert" className="error eval-inline-notice">{error}</p>}</main>;
+  if (completed === 12 && !state.participant.submitted) {
+    return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>12 个合成案例已完成</h1><p>学生端 3 个隔离合成任务及其即时评分也已记录，现在请完成最终问卷。</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card"><h2>最后的使用体验问卷</h2><form onSubmit={submitSurvey} className="survey"><fieldset><legend>学生端只读原型专项评价（1=非常不同意，5=非常同意）</legend><p className="method-note">以下 4 项是形成性自编代理条目，不是经验证量表，不代表真实学生体验、心理改善或实际操作易用性；请根据 12 个案例中的只读原型作答。学生端实际易用性已在 3 个操作任务结束后单独即时记录，不在这里重复评分。</p>{Object.entries(STUDENT_UI_ITEMS).map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>SUS 系统可用性量表</legend><p className="method-note">SUS 只评价你作为成年评估者完成本评估工具流程时的感知可用性，不评价学生端实际使用体验。</p>{SUS.map((question, index) => <label key={question}>{index + 1}. {question}<select name={`sus${index}`} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>总体评价（1=非常不同意，5=非常同意）</legend>{[["trust","我能适度信任系统而不会盲从。"],["appropriateness","建议行动符合中国学校情境且适度。"],["usability","教师/专家界面清晰且可用。"],["safetyBoundary","系统清楚守住安全、隐私与人工决策边界。"]].map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><label>完成全部任务时的工作负荷（0=几乎没有，100=非常高）<input name="workload" type="number" min="0" max="100" step="1" required /></label><label>可选反馈（禁止填写真实个人或学校信息）<textarea name="feedback" maxLength={500} /></label><button type="submit">提交匿名评估</button></form>{notice && <p className="success">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section></main>;
+  }
 
   if (state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>正式评估已提交</h1><p>感谢你的专业判断。5 个预注册合成案例中的正式多轮对话（其中 C08 由本地安全规则接管）及评分已随案例一起保存，不需要再等待额外体验区开放。</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card submitted-card"><div className="eval-pet" aria-hidden="true">🐶</div><h2>你的评估已经完整记录</h2><p>本研究评价的是情绪表达与梳理型 chatbot 的设计质量，不把它描述为心理咨询、诊断或治疗，也不以本次成人评价证明临床效果。</p>{notice && <p className="success">{notice}</p>}</section></main>;
 

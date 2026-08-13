@@ -83,6 +83,30 @@ async function state(cookie, bindings) {
   return response.json();
 }
 
+async function studentTaskEvent(cookie, bindings, event, taskId, unableReason) {
+  const body = { kind: "student-ui-task", event, taskId, ...(event === "unable" ? { unableReason } : {}) };
+  return callApi("/api/evaluation/response", mutation(body, cookie), bindings);
+}
+
+async function completeStudentUiTasks(cookie, bindings, score = 4) {
+  const current = await state(cookie, bindings);
+  if (!current.studentUiTasks.feedback) {
+    for (const taskId of current.studentUiTasks.required) {
+      const task = current.studentUiTasks.tasks.find((item) => item.taskId === taskId);
+      if (task.status === "not_started") {
+        const started = await studentTaskEvent(cookie, bindings, "start", taskId);
+        assert.equal(started.status, 200, await started.clone().text());
+      }
+      if (task.status !== "success" && task.status !== "unable") {
+        const completed = await studentTaskEvent(cookie, bindings, "success", taskId);
+        assert.equal(completed.status, 200, await completed.clone().text());
+      }
+    }
+    const rated = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task-rating", score }, cookie), bindings);
+    assert.equal(rated.status, 200, await rated.clone().text());
+  }
+}
+
 function installQwenStub(t, reply = "我听到这件事让你有些难受。可以先做一小步，也可以找一位可信任的老师说说。") {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -110,6 +134,7 @@ async function completeDialogue(cookie, bindings, scenarioId) {
 }
 
 async function completeTeacherCases(cookie, bindings) {
+  await completeStudentUiTasks(cookie, bindings);
   const initial = await state(cookie, bindings);
   assert.equal(initial.scenarios.length, 12);
   for (const scenario of initial.scenarios) {
@@ -155,6 +180,56 @@ test("four consents, code-derived role, one-time code, 12 synthetic scenarios, a
   assert.equal(participant.quote_consent, 1);
 });
 
+test("student UI microtask state machine is ordered, server-owned, sealed, and immediately rated", async (t) => {
+  const { mf, db } = await newD1(); t.after(() => mf.dispose());
+  const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-TASKS", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
+  const cookie = await start("TEACHER-CODE-TASKS", bindings);
+  const initial = await state(cookie, bindings);
+  assert.equal(initial.studentUiTasks.version, "student-ui-task-v1");
+  assert.equal(initial.studentUiTasks.current, "mood_select");
+  assert.equal(initial.studentUiTasks.feedback, null);
+
+  const bypassDialogue = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0 }, cookie), bindings);
+  assert.equal(bypassDialogue.status, 409);
+  const bypassCase = await callApi("/api/evaluation/response", mutation({ scenarioId: "C02", ...decision }, cookie), bindings);
+  assert.equal(bypassCase.status, 409);
+  const outOfOrder = await studentTaskEvent(cookie, bindings, "start", "fixed_expression");
+  assert.equal(outOfOrder.status, 409);
+  const injected = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task", event: "start", taskId: "mood_select", text: "自由文本" }, cookie), bindings);
+  assert.equal(injected.status, 400);
+
+  const started = await studentTaskEvent(cookie, bindings, "start", "mood_select");
+  assert.equal(started.status, 200);
+  const replayStart = await studentTaskEvent(cookie, bindings, "start", "mood_select");
+  assert.equal(replayStart.status, 200); assert.equal((await replayStart.json()).idempotent, true);
+  assert.equal((await studentTaskEvent(cookie, bindings, "incorrect", "mood_select")).status, 200);
+  const success = await studentTaskEvent(cookie, bindings, "success", "mood_select");
+  assert.equal(success.status, 200);
+  const replaySuccess = await studentTaskEvent(cookie, bindings, "success", "mood_select");
+  assert.equal(replaySuccess.status, 200); assert.equal((await replaySuccess.json()).idempotent, true);
+  assert.equal((await studentTaskEvent(cookie, bindings, "incorrect", "mood_select")).status, 409);
+
+  assert.equal((await studentTaskEvent(cookie, bindings, "start", "fixed_expression")).status, 200);
+  assert.equal((await studentTaskEvent(cookie, bindings, "unable", "fixed_expression", "unclear_instruction")).status, 200);
+  assert.equal((await studentTaskEvent(cookie, bindings, "start", "support_tool")).status, 200);
+  assert.equal((await studentTaskEvent(cookie, bindings, "success", "support_tool")).status, 200);
+  const beforeRating = await state(cookie, bindings);
+  assert.equal(beforeRating.studentUiTasks.tasks[0].errorCount, 1);
+  assert.equal(beforeRating.studentUiTasks.tasks[1].status, "unable");
+  assert.equal(beforeRating.studentUiTasks.tasks[1].unableReason, "unclear_instruction");
+  assert.ok(beforeRating.studentUiTasks.tasks.every((task) => task.durationMs >= 0));
+
+  const invalidRating = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task-rating", score: 6 }, cookie), bindings);
+  assert.equal(invalidRating.status, 400);
+  const rated = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task-rating", score: 3 }, cookie), bindings);
+  assert.equal(rated.status, 200);
+  const ratedAgain = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task-rating", score: 3 }, cookie), bindings);
+  assert.equal(ratedAgain.status, 200); assert.equal((await ratedAgain.json()).idempotent, true);
+  const changedRating = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task-rating", score: 4 }, cookie), bindings);
+  assert.equal(changedRating.status, 409);
+  assert.equal((await db.prepare("SELECT actual_ease_score FROM evaluation_student_ui_task_feedback").first()).actual_ease_score, 3);
+});
+
 test("teacher dashboard-only and CCCR persist identical structured fields with no free-text columns", async (t) => {
   const { mf, db } = await newD1(); t.after(() => mf.dispose());
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-0002", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
@@ -163,6 +238,11 @@ test("teacher dashboard-only and CCCR persist identical structured fields with n
   const forbiddenText = await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", ...decision, rationale: "自由文本不应进入正式案例。" }, cookie), bindings);
   assert.equal(forbiddenText.status, 400);
   await completeTeacherCases(cookie, bindings);
+  await db.prepare("DELETE FROM evaluation_student_ui_task_feedback").run();
+  const noImmediateRating = await callApi("/api/evaluation/response", mutation(survey(41), cookie), bindings);
+  assert.equal(noImmediateRating.status, 409, "survey cannot be sealed without current-version immediate task feedback");
+  const restoreRating = await callApi("/api/evaluation/response", mutation({ kind: "student-ui-task-rating", score: 4 }, cookie), bindings);
+  assert.equal(restoreRating.status, 200, await restoreRating.clone().text());
   const missingStudentUi = survey(41);
   delete missingStudentUi.studentUiPerceivedComprehensibility;
   const rejectedSurvey = await callApi("/api/evaluation/response", mutation(missingStudentUi, cookie), bindings);
@@ -187,6 +267,9 @@ test("teacher dashboard-only and CCCR persist identical structured fields with n
   assert.equal(storedSurvey.student_ui_perceived_comprehensibility_score, 4);
   assert.equal(storedSurvey.student_ui_age_context_fit_score, 5);
   assert.equal(storedSurvey.student_ui_items_version, "student-ui-formative-4-v1");
+  const overwrite = await callApi("/api/evaluation/response", mutation(survey(99), cookie), bindings);
+  assert.equal(overwrite.status, 409, "the first submitted survey is sealed and cannot be overwritten");
+  assert.equal((await db.prepare("SELECT workload_score FROM evaluation_surveys").first()).workload_score, 41);
 });
 
 test("student-UI formative items reject zero, six, and fractional scores", async (t) => {
@@ -208,6 +291,7 @@ test("expert freezes complete independent judgment before reveal, then stores se
   const { mf, db } = await newD1(); t.after(() => mf.dispose());
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_EXPERT_CODES: "EXPERT-CODE-0002", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
   const cookie = await start("EXPERT-CODE-0002", bindings);
+  await completeStudentUiTasks(cookie, bindings);
   const before = await state(cookie, bindings);
   assert.equal(before.scenarios[0].frozenOutput, undefined); assert.equal(before.scenarios[0].petReply, undefined); assert.equal(before.scenarios[0].expertReference, null);
   installQwenStub(t);
@@ -234,7 +318,7 @@ test("expert freezes complete independent judgment before reveal, then stores se
 
   const withdrawn = await callApi("/api/evaluation/withdraw", { method: "DELETE", headers: { origin: ORIGIN, cookie } }, bindings);
   assert.equal(withdrawn.status, 200);
-  for (const table of ["evaluation_participants","evaluation_scenario_responses","evaluation_expert_references","evaluation_dialogues","evaluation_surveys"]) {
+  for (const table of ["evaluation_participants","evaluation_scenario_responses","evaluation_expert_references","evaluation_dialogues","evaluation_surveys","evaluation_student_ui_task_runs","evaluation_student_ui_task_feedback"]) {
     assert.equal((await db.prepare(`SELECT COUNT(*) count FROM ${table}`).first()).count, 0, table);
   }
   assert.equal((await db.prepare("SELECT COUNT(*) count FROM evaluation_used_codes").first()).count, 1);
@@ -247,6 +331,7 @@ test("research suppresses n<5 and CSV exports workload, quote, structured teache
   const cookie = await start("TEACHER-CODE-CSV1", bindings); await completeTeacherCases(cookie, bindings);
   assert.equal((await callApi("/api/evaluation/response", mutation(survey(52), cookie), bindings)).status, 200);
   const expert = await start("EXPERT-CODE-CSV01", bindings, { quoteConsent: false });
+  await completeStudentUiTasks(expert, bindings);
   assert.equal((await callApi("/api/evaluation/response", mutation({ kind: "expert-reference", scenarioId: "C01", ...reference }, expert), bindings)).status, 200);
   await completeDialogue(expert, bindings, "C01");
   assert.equal((await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", chosenAction: "monitor", quality, mustRevise: false, criticalHarmFlags: ["none"], ...dialogueReview, decisionTimeMs: 2_000 }, expert), bindings)).status, 200);
@@ -256,7 +341,9 @@ test("research suppresses n<5 and CSV exports workload, quote, structured teache
   const exported = await callApi("/api/research/export", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
   assert.equal(exported.headers.get("cache-control"), "no-store");
   const csv = await exported.text(); const header = csv.replace(/^\uFEFF/u, "").split(/\r?\n/u, 1)[0];
-  for (const field of ["quote_consent","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","reference_evidence_json","reference_confidence","dialogue_transcript_json","dialogue_rating_json","dialogue_model_id","dialogue_total_latency_ms","student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score","student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version","workload_score"]) assert.match(header, new RegExp(`(?:^|,)${field}(?:,|$)`, "u"));
+  for (const field of ["participant_record","quote_consent","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","reference_evidence_json","reference_confidence","dialogue_transcript_json","dialogue_rating_json","dialogue_model_id","dialogue_total_latency_ms","student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score","student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version","student_ui_actual_ease_score","student_ui_task_version","mood_select_status","fixed_expression_error_count","support_tool_duration_ms","workload_score"]) assert.match(header, new RegExp(`(?:^|,)${field}(?:,|$)`, "u"));
+  const lines = csv.replace(/^\uFEFF/u, "").trim().split(/\r?\n/u);
+  assert.equal(lines.filter((line) => line.startsWith('"1",')).length, 2, "each participant has exactly one participant-level record");
   assert.doesNotMatch(header, /context_check|rationale|output_rating/u);
 });
 
@@ -315,6 +402,7 @@ test("formal dialogue starts during teacher case, rejects client text, preserves
   const { mf, db } = await newD1(); t.after(() => mf.dispose());
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-LIVE1", QWEN_API_KEY: "test-qwen-key" };
   const cookie = await start("TEACHER-CODE-LIVE1", bindings);
+  await completeStudentUiTasks(cookie, bindings);
   const calls = installQwenStub(t, "我听见你有些挫败。可以先只看第一步，也可以请数学老师陪你一起拆解。");
   const rejected = await callApi("/api/evaluation/dialogue", mutation({ scenarioId: "C01", expectedTurn: 0, message: "恶意真实自由文本" }, cookie), bindings);
   assert.equal(rejected.status, 400);
@@ -364,4 +452,31 @@ test("evaluation UI keeps UTF-8 disclosures and has no formal-case free-text jud
   assert.match(source, /SUS 只评价你作为成年评估者完成本评估工具流程时的感知可用性/u);
   assert.doesNotMatch(source, /name="(?:contextCheck|rationale)"/u);
   assert.doesNotMatch(source, /鐨|鍙|绱/u);
+});
+
+test("student-UI usability tasks are isolated, resumable, and rated immediately before cases", async () => {
+  const appSource = await readFile(new URL("../app/evaluate/EvaluationApp.tsx", import.meta.url), "utf8");
+  const taskSource = await readFile(new URL("../app/evaluate/StudentPrototypeTask.tsx", import.meta.url), "utf8");
+
+  assert.ok(
+    appSource.indexOf("if ((!studentTasksTerminal || !state.studentUiTasks.feedback)") < appSource.indexOf("const revealed ="),
+    "the isolated student task gate must run before the 12-case interface",
+  );
+  for (const taskId of ["mood_select", "fixed_expression", "support_tool"]) assert.match(taskSource, new RegExp(`"${taskId}"`, "u"));
+  for (const reason of ["could_not_find", "unclear_instruction", "other_no_text"]) assert.match(taskSource, new RegExp(`"${reason}"`, "u"));
+  assert.match(taskSource, /event: "start"/u);
+  assert.match(taskSource, /event: "incorrect", taskId: "support_tool"/u, "the wrong support-circle choice is an error attempt");
+  assert.match(taskSource, /event: "unable"/u);
+  assert.doesNotMatch(taskSource, /Date\.now|attempts\s*:/u, "the client cannot author timing or attempt counts");
+  assert.match(taskSource, /allTerminal && !state\.feedback/u);
+  assert.match(appSource, /kind: "student-ui-task-rating", score/u);
+  assert.match(appSource, /成功／无法完成状态、错误尝试次数、服务端计时和实际易用性单项评分/u);
+  assert.match(taskSource, /记录从点击开始到成功或标记无法完成的经过时间；离开或关闭页面期间也会计入/u);
+  assert.doesNotMatch(taskSource, /计时只覆盖实际操作/u);
+  assert.doesNotMatch(appSource, /name="studentUiActualEase"|data\.get\("studentUiActualEase"\)/u, "the final survey must not repeat the immediate task rating");
+  assert.doesNotMatch(taskSource, /<textarea|type="text"|tel:|getUserMedia|Qwen|\/api\/chat/u);
+  assert.match(taskSource, /event\.key === "Tab"/u);
+  assert.match(taskSource, /!focusable\.includes\(active\)/u, "the first Tab from the initially focused heading remains in the dialog");
+  assert.match(taskSource, /\(event\.shiftKey \? last : first\)\.focus\(\)/u);
+  assert.match(taskSource, /last\.focus\(\)|first\.focus\(\)/u, "modal focus stays inside the dialog");
 });
