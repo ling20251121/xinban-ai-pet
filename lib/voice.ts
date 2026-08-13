@@ -2,14 +2,15 @@ import { ApiError } from "@/lib/http";
 import { resolveQwenConfig } from "@/lib/qwen";
 import { asObject } from "@/lib/validation";
 
-export const MAX_AUDIO_BYTES = 2_500_000;
-export const MAX_AUDIO_DURATION_MS = 30_000;
-export const MAX_VOICE_REQUEST_BYTES = 3_340_000;
+export const MAX_AUDIO_BYTES = 8_000_000;
+export const MAX_AUDIO_DURATION_MS = 120_000;
+const MAX_BASE64_AUDIO_BYTES = Math.ceil(MAX_AUDIO_BYTES / 3) * 4;
+export const MAX_VOICE_REQUEST_BYTES = MAX_BASE64_AUDIO_BYTES + 2_048;
 
 const DURATION_CONTAINER_TOLERANCE_MS = 250;
 const PROVIDER_RESPONSE_LIMIT_BYTES = 65_536;
-const TRANSCRIPT_LIMIT_CHARACTERS = 600;
-const QWEN_ASR_TIMEOUT_MS = 20_000;
+const TRANSCRIPT_LIMIT_CHARACTERS = 1_200;
+const QWEN_ASR_TIMEOUT_MS = 50_000;
 
 type AudioKind = "webm" | "ogg" | "wav" | "mp3";
 
@@ -62,7 +63,7 @@ function decodeBase64(value: string): Uint8Array {
     throw new ApiError(400, "没有收到录音内容，请重新录制。");
   }
   if (decodedLength > MAX_AUDIO_BYTES) {
-    throw new ApiError(413, "录音不能超过 2.5 MB，请缩短后重试。");
+    throw new ApiError(413, "单段录音不能超过 8 MB，请缩短后重试。");
   }
 
   try {
@@ -520,7 +521,7 @@ export function parseVoicePayload(value: unknown): ValidatedAudio {
     );
   }
   if (durationMs > MAX_AUDIO_DURATION_MS + DURATION_CONTAINER_TOLERANCE_MS) {
-    throw new ApiError(413, "每次录音最长 30 秒，请缩短后重试。");
+    throw new ApiError(413, "单段录音最长 2 分钟，请缩短后重试。");
   }
 
   return {
@@ -679,7 +680,7 @@ export async function transcribeWithQwen(
       throw new ApiError(502, "语音转文字暂时不可用，请稍后再试。");
     }
     if (providerSeconds > MAX_AUDIO_DURATION_MS / 1_000) {
-      throw new ApiError(413, "每次录音最长 30 秒，请缩短后重试。");
+      throw new ApiError(413, "单段录音最长 2 分钟，请缩短后重试。");
     }
     const transcript = extractTranscript(providerPayload);
     if (!transcript) {

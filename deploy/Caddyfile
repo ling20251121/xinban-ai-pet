@@ -5,7 +5,7 @@
 {$SITE_HOSTNAME} {
   encode zstd gzip
   request_body {
-    max_size 4MB
+    max_size 12MB
   }
   header {
     X-Content-Type-Options "nosniff"

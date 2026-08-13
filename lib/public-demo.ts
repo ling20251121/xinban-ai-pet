@@ -42,6 +42,8 @@ const SCHOOL_DATA_TABLES = [
   "chat_conversations",
   "chat_messages",
   "support_events",
+  "teacher_attention_events",
+  "conversation_cues",
 ] as const;
 
 /** Refuse to mount the adult-only service on a database containing school data. */
@@ -87,6 +89,8 @@ export async function assertSandboxDatabaseIsSynthetic(
     "chat_conversations",
     "chat_messages",
     "support_events",
+    "teacher_attention_events",
+    "conversation_cues",
   ] as const) {
     const row = await database
       .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE synthetic<>1 OR synthetic IS NULL`)

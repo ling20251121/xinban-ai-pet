@@ -54,12 +54,12 @@ const TABLE_SQL = [
   `CREATE TABLE IF NOT EXISTS chat_conversations (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, class_id TEXT NOT NULL,
     started_at TEXT NOT NULL, expires_at TEXT NOT NULL,
-    student_turns INTEGER NOT NULL DEFAULT 0 CHECK (student_turns BETWEEN 0 AND 12),
+    student_turns INTEGER NOT NULL DEFAULT 0 CHECK (student_turns >= 0),
     in_flight INTEGER NOT NULL DEFAULT 0 CHECK (in_flight IN (0, 1)),
     pending_since TEXT,
     lease_token TEXT,
     ended_reason TEXT CHECK (ended_reason IS NULL OR ended_reason IN
-      ('expired','turn_limit','urgent','student_deleted')),
+      ('expired','turn_limit','urgent','student_deleted','student_finished')),
     ended_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     , synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1))
   )`,
@@ -81,6 +81,34 @@ const TABLE_SQL = [
     synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
     created_at TEXT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS teacher_attention_events (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, class_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','acknowledged','resolved')),
+    assigned_teacher_user_id TEXT, acknowledged_at TEXT, resolved_at TEXT,
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)),
+    created_at TEXT NOT NULL,
+    UNIQUE (kind, source_id),
+    CHECK ((kind='long_chat_session' AND source_type='chat') OR
+      (kind='student_support_request' AND source_type='mood'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS conversation_cues (
+    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    class_id TEXT NOT NULL, window_turn INTEGER NOT NULL CHECK (window_turn > 0 AND window_turn % 3 = 0),
+    observed_expression TEXT NOT NULL CHECK (observed_expression IN ('positive','neutral','mixed','distress','unclear')),
+    themes_json TEXT NOT NULL,
+    follow_up TEXT NOT NULL CHECK (follow_up IN ('routine_check_in','timely_check_in')),
+    trend TEXT NOT NULL CHECK (trend IN ('not_enough_data','stable','easing','intensifying','unclear')),
+    confidence TEXT NOT NULL CHECK (confidence IN ('low','medium','high')),
+    basis_json TEXT NOT NULL, analyzer_version TEXT NOT NULL, prompt_version TEXT NOT NULL,
+    model TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','acknowledged','resolved','dismissed_inaccurate')),
+    assigned_teacher_user_id TEXT, acknowledged_at TEXT, resolved_at TEXT, dismissed_at TEXT,
+    synthetic INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0, 1)), created_at TEXT NOT NULL,
+    UNIQUE (conversation_id, window_turn)
+  )`,
 ] as const;
 
 const INDEX_SQL = [
@@ -101,6 +129,10 @@ const INDEX_SQL = [
   "CREATE INDEX IF NOT EXISTS idx_chat_messages_user_created ON chat_messages (user_id, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_support_events_class_created ON support_events (class_id, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_support_events_user_created ON support_events (user_id, created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_teacher_attention_events_class_created ON teacher_attention_events (class_id, created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_teacher_attention_events_user_created ON teacher_attention_events (user_id, created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_conversation_cues_class_created ON conversation_cues (class_id, created_at)",
+  "CREATE INDEX IF NOT EXISTS idx_conversation_cues_user_created ON conversation_cues (user_id, created_at)",
 ] as const;
 
 const readyByDatabase = new WeakMap<object, Promise<void>>();
@@ -131,6 +163,8 @@ async function initializeD1(database: SystemDatabase): Promise<void> {
     ["chat_conversations", "synthetic"],
     ["chat_messages", "synthetic"],
     ["support_events", "synthetic"],
+    ["teacher_attention_events", "synthetic"],
+    ["conversation_cues", "synthetic"],
   ] as const;
   const syntheticAlterations: ReturnType<SystemDatabase["prepare"]>[] = [];
   for (const [table, column] of syntheticColumns) {

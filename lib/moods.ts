@@ -47,6 +47,13 @@ export async function createMoodEntry(input: NewMoodEntry): Promise<PublicMoodEn
       assigned_teacher_user_id,acknowledged_at,resolved_at,synthetic,created_at
     ) VALUES (?,?,?,'mood',?,'urgent','local_crisis_rule','new',NULL,NULL,NULL,?,?)`)
       .bind(crypto.randomUUID(), input.userId, input.classId, id, input.synthetic ? 1 : 0, createdAt));
+  } else if (input.wantsSupport) {
+    statements.push(database.prepare(`INSERT INTO teacher_attention_events (
+      id,user_id,class_id,kind,source_type,source_id,status,
+      assigned_teacher_user_id,acknowledged_at,resolved_at,synthetic,created_at
+    ) VALUES (?,?,?,'student_support_request','mood',?,'new',NULL,NULL,NULL,?,?)
+      ON CONFLICT (kind,source_id) DO NOTHING`)
+      .bind(crypto.randomUUID(), input.userId, input.classId, id, input.synthetic ? 1 : 0, createdAt));
   }
   await database.batch(statements);
   return mapMood({
@@ -125,6 +132,14 @@ export async function getTeacherSummary(
       ORDER BY m.created_at DESC,m.id DESC LIMIT 50`),
   ]);
   const totals = (results[0].results as Array<Record<string, unknown>>)[0] ?? {};
+  const daily = (results[2].results as Array<Record<string, unknown>>).map((row) => ({
+    date: String(row.date), count: num(row.count),
+    averageMoodScore: nullableNum(row.average_mood_score),
+    wantsSupport: num(row.wants_support), urgent: num(row.urgent),
+  }));
+  const todayCount = daily.find(
+    (item) => item.date === generatedAt.toISOString().slice(0, 10),
+  )?.count ?? 0;
   return {
     generatedAt: generatedAt.toISOString(),
     range: { days, since },
@@ -133,15 +148,12 @@ export async function getTeacherSummary(
       entries: num(totals.entries), participants: num(totals.participants),
       averageMoodScore: nullableNum(totals.average_mood_score),
       wantsSupport: num(totals.wants_support), urgent: num(totals.urgent),
+      todayCount,
     },
     moodCounts: (results[1].results as Array<Record<string, unknown>>).map((row) => ({
       mood: String(row.mood), count: num(row.count),
     })),
-    daily: (results[2].results as Array<Record<string, unknown>>).map((row) => ({
-      date: String(row.date), count: num(row.count),
-      averageMoodScore: nullableNum(row.average_mood_score),
-      wantsSupport: num(row.wants_support), urgent: num(row.urgent),
-    })),
+    daily,
     alerts: (results[3].results as Array<Record<string, unknown>>).map((row) => ({
       id: String(row.id), studentId: String(row.student_id),
       participantCode: String(row.username), classId: String(row.class_id),

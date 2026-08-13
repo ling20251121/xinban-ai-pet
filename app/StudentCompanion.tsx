@@ -50,7 +50,7 @@ type MoodEntry = {
 
 type ChatMessage = {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "local_safety";
   content: string;
   createdAt: string;
   provider?: string;
@@ -68,6 +68,18 @@ type RecordingState =
 type CloudSpeechState = "idle" | "loading" | "playing" | "paused" | "error";
 
 type BreathingState = "ready" | "running" | "paused" | "complete";
+
+const RECORDING_LIMIT_SECONDS = 120;
+const MAX_RECORDING_BYTES = 8_000_000;
+const EYE_BREAK_SECONDS = 60 * 60;
+
+type ConversationSummary = {
+  id: string;
+  startedAt: string;
+  studentTurns: number;
+  ended: boolean;
+  endedReason: string | null;
+};
 
 const moodOptions: MoodOption[] = [
   { id: "happy", label: "开心", cue: "明亮", score: 5, tone: "sun" },
@@ -132,7 +144,15 @@ function formatDate(value: string) {
   }).format(date);
 }
 
-function formatCountdown(seconds: number) {
+function formatElapsed(seconds: number) {
+  const safe = Math.max(0, seconds);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  return `${minutes} 分钟`;
+}
+
+function formatRecordingTime(seconds: number) {
   const safe = Math.max(0, seconds);
   return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, "0")}`;
 }
@@ -161,6 +181,10 @@ function makeLocalMessage(
     provider,
     createdAt: new Date().toISOString(),
   };
+}
+
+function normalizeMessageRole(role: ChatMessage["role"]): ChatMessage["role"] {
+  return role === "local_safety" ? "assistant" : role;
 }
 
 export default function StudentCompanion() {
@@ -210,11 +234,14 @@ export default function StudentCompanion() {
   const [chatDraft, setChatDraft] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [studentTurns, setStudentTurns] = useState(0);
-  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [conversationStartedAt, setConversationStartedAt] = useState<string | null>(null);
   const [chatEnded, setChatEnded] = useState(false);
+  const [finishingChat, setFinishingChat] = useState(false);
+  const [eyeBreakDismissed, setEyeBreakDismissed] = useState(false);
   const [provider, setProvider] = useState("");
   const [clock, setClock] = useState(0);
   const [chatStatus, setChatStatus] = useState("");
+  const [cueNotice, setCueNotice] = useState("");
 
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -249,14 +276,13 @@ export default function StudentCompanion() {
   const cloudSpeechRequestRef = useRef(0);
 
   const noteRemaining = 600 - note.length;
-  const chatRemaining = 300 - chatDraft.length;
-  const secondsRemaining = expiresAt
-    ? clock === 0
-      ? 15 * 60
-      : Math.max(0, Math.ceil((new Date(expiresAt).getTime() - clock) / 1000))
-    : 15 * 60;
-  const turnsRemaining = Math.max(0, 12 - studentTurns);
-  const conversationUnavailable = chatEnded || secondsRemaining <= 0 || turnsRemaining <= 0;
+  const chatRemaining = 1_200 - Array.from(chatDraft).length;
+  const elapsedChatSeconds = conversationStartedAt && clock !== 0
+    ? Math.max(0, Math.floor((clock - new Date(conversationStartedAt).getTime()) / 1000))
+    : 0;
+  const conversationUnavailable = chatEnded;
+  const showEyeBreakReminder =
+    !chatEnded && elapsedChatSeconds >= EYE_BREAK_SECONDS && !eyeBreakDismissed;
   const breathingElapsed = 60 - breathingSeconds;
   const breathingCycleSecond = breathingElapsed % 12;
   const breathingPhase = breathingState === "complete"
@@ -303,14 +329,60 @@ export default function StudentCompanion() {
   const loadHistory = useCallback(async () => {
     setHistoryBusy(true);
     try {
-      const response = await fetch("/api/moods?limit=14", { cache: "no-store" });
-      if (response.status === 401) {
+      // Clear any locally displayed session before rebuilding it from the
+      // server. This also prevents a previously open session remaining on
+      // screen after it was ended or deleted from another tab/device.
+      setConversationId(null);
+      setConversationStartedAt(null);
+      setStudentTurns(0);
+      setMessages([]);
+      setChatEnded(false);
+      setCueNotice("");
+      const [moodsResponse, conversationsResponse] = await Promise.all([
+        fetch("/api/moods?limit=14", { cache: "no-store" }),
+        fetch("/api/chat", { cache: "no-store" }),
+      ]);
+      if (moodsResponse.status === 401 || conversationsResponse.status === 401) {
         window.location.replace("/login?next=student");
         return;
       }
-      const data = (await response.json()) as { entries?: MoodEntry[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "暂时无法读取记录");
-      setEntries(data.entries || []);
+      const moodsData = (await moodsResponse.json()) as { entries?: MoodEntry[]; error?: string };
+      const conversationsData = (await conversationsResponse.json()) as {
+        conversations?: ConversationSummary[];
+        error?: string;
+      };
+      if (!moodsResponse.ok || !conversationsResponse.ok) {
+        throw new Error(moodsData.error || conversationsData.error || "暂时无法读取记录");
+      }
+      setEntries(moodsData.entries || []);
+
+      const openConversation = conversationsData.conversations?.find((item) => !item.ended);
+      if (openConversation) {
+        const detailResponse = await fetch(
+          `/api/chat?conversationId=${encodeURIComponent(openConversation.id)}`,
+          { cache: "no-store" },
+        );
+        const detail = (await detailResponse.json()) as {
+          conversation?: ConversationSummary;
+          messages?: ChatMessage[];
+          error?: string;
+        };
+        if (!detailResponse.ok || !detail.conversation) {
+          throw new Error(detail.error || "暂时无法恢复未结束的对话");
+        }
+        setConversationId(detail.conversation.id);
+        setConversationStartedAt(detail.conversation.startedAt);
+        setStudentTurns(detail.conversation.studentTurns);
+        setMessages((detail.messages || []).map((message) => ({
+          ...message,
+          role: normalizeMessageRole(message.role),
+        })));
+        setChatEnded(false);
+        setEyeBreakDismissed(false);
+        setClock(Date.now());
+        setPhase("chat");
+        setChatStatus("已恢复这段未结束的对话。你可以从上次停下的地方继续。");
+      }
     } catch (historyError) {
       setError(historyError instanceof Error ? historyError.message : "暂时无法读取记录");
     } finally {
@@ -370,10 +442,10 @@ export default function StudentCompanion() {
   }, []);
 
   useEffect(() => {
-    if (!expiresAt || chatEnded) return;
+    if (!conversationStartedAt || chatEnded) return;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [expiresAt, chatEnded]);
+  }, [conversationStartedAt, chatEnded]);
 
   useEffect(() => {
     if (phase !== "chat") return;
@@ -586,26 +658,19 @@ export default function StudentCompanion() {
     setDataRightsBusy(true);
     setDataRightsMessage("");
     try {
-      const chatsResponse = await fetch("/api/chat", {
+      const response = await fetch("/api/student/data", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
       });
-      const chats = (await chatsResponse.json()) as { error?: string };
-      if (!chatsResponse.ok) throw new Error(chats.error || "暂时无法删除 AI 对话");
-
-      const moodsResponse = await fetch("/api/moods", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const moods = (await moodsResponse.json()) as { error?: string };
-      if (!moodsResponse.ok) {
-        throw new Error(
-          moods.error || "AI 对话已删除，但心情记录暂时未能删除，请稍后再试",
-        );
-      }
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法删除已有记录");
       setEntries([]);
+      setConversationId(null);
+      setMessages([]);
+      setConversationStartedAt(null);
+      setStudentTurns(0);
+      setChatEnded(true);
+      setPhase("checkin");
+      setCueNotice("");
       setDataRightsMessage(
         "已删除本轮合成心情记录和 AI 对话原文。不含原文的模拟事件留痕可能按演示保留期限存储。",
       );
@@ -619,6 +684,7 @@ export default function StudentCompanion() {
   }
 
   async function logout() {
+    cancelRecording();
     stopAudio();
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     window.location.replace("/login");
@@ -682,8 +748,20 @@ export default function StudentCompanion() {
     }
   }
 
-  function resetCheckin() {
+  async function resetCheckin() {
     stopAudio();
+    if (conversationId && !chatEnded && !chatBusy) {
+      const response = await fetch("/api/chat", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId }),
+      });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        setError(data.error || "暂时无法结束上一段对话，请稍后再试。");
+        return;
+      }
+    }
     setSelectedMood(null);
     setNote("");
     setGoal("");
@@ -697,9 +775,12 @@ export default function StudentCompanion() {
     setMessages([]);
     setChatDraft("");
     setStudentTurns(0);
-    setExpiresAt(null);
+    setConversationStartedAt(null);
     setChatEnded(false);
+    setFinishingChat(false);
+    setEyeBreakDismissed(false);
     setChatStatus("");
+    setCueNotice("");
   }
 
   async function saveCheckin(event: FormEvent<HTMLFormElement>) {
@@ -776,8 +857,10 @@ export default function StudentCompanion() {
         provider?: string;
         conversationId?: string;
         studentTurns?: number;
-        expiresAt?: string;
+        startedAt?: string;
         ended?: boolean;
+        cueCreated?: boolean;
+        analysisAvailable?: boolean;
         error?: string;
       };
       if (!chatResponse.ok) {
@@ -792,16 +875,24 @@ export default function StudentCompanion() {
       setProvider(chatData.provider || "");
       setConversationId(chatData.conversationId || null);
       setStudentTurns(chatData.studentTurns ?? 1);
-      setExpiresAt(chatData.expiresAt || new Date(Date.now() + 15 * 60_000).toISOString());
+      setConversationStartedAt(chatData.startedAt || new Date().toISOString());
+      setEyeBreakDismissed(false);
       setClock(Date.now());
       setChatEnded(Boolean(chatData.ended));
+      setCueNotice("");
       setMessages([userMessage, makeLocalMessage("assistant", reply, chatData.provider)]);
       if (chatData.urgent) {
         setUrgent(true);
         setChatStatus(reply || crisisMessage);
         setChatEnded(true);
       } else {
-        setChatStatus("小伴已经回复。AI 生成内容可能有误，你可以采用、修改或忽略。 ");
+        const cueMessage = chatData.cueCreated
+          ? "本轮已生成一条不含原文的 AI 关心线索，等待本班授权模拟教师核对。"
+          : chatData.analysisAvailable
+            ? "本轮已完成结构化关心线索分析；只有符合条件的线索才会进入教师核对。"
+            : "";
+        setCueNotice(cueMessage);
+        setChatStatus(`小伴已经回复。AI 生成内容可能有误，你可以采用、修改或忽略。${cueMessage ? ` ${cueMessage}` : ""}`);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "暂时无法完成这次记录");
@@ -821,6 +912,7 @@ export default function StudentCompanion() {
     setChatDraft("");
     setChatBusy(true);
     setError("");
+    setCueNotice("");
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -836,12 +928,13 @@ export default function StudentCompanion() {
         urgent?: boolean;
         provider?: string;
         studentTurns?: number;
-        expiresAt?: string;
+        startedAt?: string;
         ended?: boolean;
+        cueCreated?: boolean;
+        analysisAvailable?: boolean;
         error?: string;
       };
       if (!response.ok) {
-        if (response.status === 409) setChatEnded(true);
         throw new Error(data.error || "这句话没有发送成功，请稍后再试");
       }
       const reply = data.reply || "我听到了。要不要把现在最需要的一件事说得更具体一点？";
@@ -851,15 +944,26 @@ export default function StudentCompanion() {
       ]);
       setProvider(data.provider || provider);
       setStudentTurns(data.studentTurns ?? studentTurns + 1);
-      if (data.expiresAt) setExpiresAt(data.expiresAt);
+      if (data.startedAt) setConversationStartedAt(data.startedAt);
       setClock(Date.now());
       if (data.ended) setChatEnded(true);
-      setChatStatus(data.urgent ? reply : "小伴已经回复。AI 生成内容可能有误。");
+      const cueMessage = data.cueCreated
+        ? "本轮已生成一条不含原文的 AI 关心线索，等待本班授权模拟教师核对。"
+        : data.analysisAvailable
+          ? "本轮已完成结构化关心线索分析；只有符合条件的线索才会进入教师核对。"
+          : "";
+      setCueNotice(cueMessage);
+      setChatStatus(data.urgent ? reply : `小伴已经回复。AI 生成内容可能有误。${cueMessage ? ` ${cueMessage}` : ""}`);
       if (data.urgent) {
         setUrgent(true);
         setChatEnded(true);
       }
     } catch (chatError) {
+      // The server stores a normal student turn only together with its AI
+      // reply. Remove the optimistic bubble when that atomic request fails so
+      // the screen never suggests an unsaved message was delivered.
+      setMessages((current) => current.filter((message) => message.id !== userMessage.id));
+      setChatDraft(content);
       setError(chatError instanceof Error ? chatError.message : "这句话没有发送成功");
     } finally {
       setChatBusy(false);
@@ -873,10 +977,26 @@ export default function StudentCompanion() {
     }
   }
 
-  function finishConversation() {
+  async function finishConversation() {
+    if (!conversationId || finishingChat || chatBusy) return;
     stopAudio();
-    setChatEnded(true);
-    setChatStatus("你已结束本次会话。内容仍保留在你的账号中，直到你主动删除。 ");
+    setFinishingChat(true);
+    setError("");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法结束这段会话");
+      setChatEnded(true);
+      setChatStatus("你已结束本次会话。内容仍保留在你的账号中，直到你主动删除。 ");
+    } catch (finishError) {
+      setError(finishError instanceof Error ? finishError.message : "暂时无法结束这段会话");
+    } finally {
+      setFinishingChat(false);
+    }
   }
 
   async function copyConversation() {
@@ -905,6 +1025,7 @@ export default function StudentCompanion() {
       if (!response.ok) throw new Error(data.error || "暂时无法删除会话");
       setConversationId(null);
       setMessages([]);
+      setCueNotice("");
       setChatEnded(true);
       setPhase("saved");
       setNotice("这次 AI 会话已经删除。心情记录仍保留在你的账号中。 ");
@@ -928,9 +1049,9 @@ export default function StudentCompanion() {
   }
 
   async function transcribeRecording(blob: Blob, mimeType: string) {
-    if (blob.size > 2_500_000) {
+    if (blob.size > MAX_RECORDING_BYTES) {
       setRecordingState("error");
-      setVoiceMessage("录音文件超过 2.5MB，请缩短录音或改用文字输入。");
+      setVoiceMessage("录音文件超过 8MB，请缩短录音或改用文字输入。");
       return;
     }
     const requestId = ++voiceRequestRef.current;
@@ -962,11 +1083,18 @@ export default function StudentCompanion() {
       if (requestId !== voiceRequestRef.current) return;
       const text = data.text?.trim() || "";
       if (!text) throw new Error("没有识别到清晰文字，请改用文字输入。 ");
-      if (voiceTarget === "chat") {
-        setChatDraft((current) => `${current}${current.trim() ? " " : ""}${text}`.slice(0, 300));
-      } else {
-        setNote((current) => `${current}${current.trim() ? " " : ""}${text}`.slice(0, 600));
+      const targetLimit = voiceTarget === "chat" ? 1_200 : 600;
+      const currentText = voiceTarget === "chat" ? chatDraft : note;
+      const merged = Array.from(`${currentText}${currentText.trim() ? " " : ""}${text}`);
+      if (merged.length > targetLimit) {
+        setRecordingState("review");
+        setVoiceMessage(
+          `转写文字超过${targetLimit}字，没有自动截断。请先删减输入框内容，再重新录制这一段。录音已释放。`,
+        );
+        return;
       }
+      if (voiceTarget === "chat") setChatDraft(merged.join(""));
+      else setNote(merged.join(""));
       setRecordingState("review");
       setVoiceMessage("已转成文字，请检查并修改后再保存。录音已释放。 ");
       if (data.urgent) {
@@ -1022,7 +1150,7 @@ export default function StudentCompanion() {
       setRecordingState("recording");
       setVoiceMessage("正在录音。说完后点“停止并转成文字”。 ");
       recordingTimerRef.current = window.setInterval(
-        () => setRecordingSeconds((current) => Math.min(30, current + 1)),
+        () => setRecordingSeconds((current) => Math.min(RECORDING_LIMIT_SECONDS, current + 1)),
         1000,
       );
       recordingLimitRef.current = window.setTimeout(() => {
@@ -1030,7 +1158,7 @@ export default function StudentCompanion() {
           stopReasonRef.current = "transcribe";
           recorder.stop();
         }
-      }, 30_000);
+      }, RECORDING_LIMIT_SECONDS * 1000);
     } catch (recordError) {
       closeMediaStream();
       setRecordingState("error");
@@ -1440,7 +1568,7 @@ export default function StudentCompanion() {
                     {recordingState === "notice" && (
                       <>
                         <strong>录音前请确认</strong>
-                        <p>最多录 30 秒。只说虚构情境，禁止说出真实个人或学校信息。音频会发送至阿里云百炼 / Qwen 语音识别服务进行转写；本应用不保存原始音频，转写文字可修改。</p>
+                        <p>每段最多录 2 分钟；转写并检查后可以继续录下一段。只说虚构情境，禁止说出真实个人或学校信息。音频会发送至阿里云百炼 / Qwen 语音识别服务进行转写；本应用不保存原始音频，转写文字可修改。</p>
                         <div className="inline-actions">
                           <button type="button" className="small-primary" onClick={startRecording}>允许并开始</button>
                           <button type="button" className="small-quiet" onClick={cancelRecording}>取消</button>
@@ -1450,7 +1578,7 @@ export default function StudentCompanion() {
                     {recordingState === "requesting" && <p>正在请求麦克风权限……</p>}
                     {recordingState === "recording" && (
                       <>
-                        <div className="recording-row"><span className="recording-dot" aria-hidden="true"></span><strong>正在录音</strong><time>0:{String(recordingSeconds).padStart(2, "0")} / 0:30</time></div>
+                        <div className="recording-row"><span className="recording-dot" aria-hidden="true"></span><strong>正在录音</strong><time>{formatRecordingTime(recordingSeconds)} / 2:00</time></div>
                         <div className="inline-actions">
                           <button type="button" className="small-primary" onClick={stopRecording}>停止并转成文字</button>
                           <button type="button" className="small-quiet" onClick={cancelRecording}>取消录音</button>
@@ -1493,9 +1621,24 @@ export default function StudentCompanion() {
                 </label>
                 <label className="check-row">
                   <input aria-label="保存后进入持续多轮 AI 对话" type="checkbox" checked={wantsAi} onChange={(event) => setWantsAi(event.target.checked)} />
-                  <span><strong>保存后进入持续多轮 AI 对话</strong><small>最多 15 分钟或 12 个学生回合；合成内容可能发送给演示配置的 Qwen 北京模型。</small></span>
+                  <span><strong>保存后进入持续多轮 AI 对话</strong><small>不设固定时长或轮次上限；连续使用约 1 小时会提醒休息，合成内容可能发送给演示配置的 Qwen 北京模型。</small></span>
                 </label>
               </div>
+
+              {wantsAi && (
+                <aside className="ai-cue-disclosure" aria-labelledby="ai-cue-disclosure-title">
+                  <span className="ai-cue-disclosure__mark" aria-hidden="true">线索</span>
+                  <div>
+                    <strong id="ai-cue-disclosure-title">选择 AI 对话前，请先知道老师可能看到什么</strong>
+                    <p>普通对话每 3 个学生回合，系统可能生成一条<strong>不含原文</strong>的结构化“AI 关心线索”，只包括表达类别、主题、建议核对时效和置信度，供本班授权模拟教师人工核对。</p>
+                    <ul>
+                      <li>它不是诊断，也不代表学生异常，AI 可能判断错误。</li>
+                      <li>老师看不到普通对话原文；原文仍保存在学生账户中，并会由 Qwen 处理以生成回应。</li>
+                      <li>危机内容和你主动勾选“请求老师支持”时，会走另外的处理流程。</li>
+                    </ul>
+                  </div>
+                </aside>
+              )}
 
               {error && <p className="form-error" role="alert">{error}</p>}
               <button className="save-button" type="submit" disabled={!selectedMood || submitting}>
@@ -1521,18 +1664,33 @@ export default function StudentCompanion() {
                   <div className="ai-identity"><span aria-hidden="true">AI</span><strong id="conversation-title">小伴对话</strong></div>
                   <p>AI 生成 · 可能有误 · {providerNames[provider] || provider || "演示配置模型"}</p>
                 </div>
-                <div className="conversation-limits" aria-label="会话剩余限制">
-                  <span><strong>{formatCountdown(secondsRemaining)}</strong> 剩余时间</span>
-                  <span><strong>{turnsRemaining}</strong> 剩余轮次</span>
+                <div className="conversation-limits" aria-label="本次会话使用情况">
+                  <span><strong>{formatElapsed(elapsedChatSeconds)}</strong> 本次已聊</span>
+                  <span><strong>{studentTurns}</strong> 学生回合</span>
                 </div>
               </header>
 
               <div className="conversation-toolbar" aria-label="会话操作">
-                <button type="button" onClick={finishConversation} disabled={conversationUnavailable}>结束会话</button>
+                <button type="button" onClick={() => void finishConversation()} disabled={conversationUnavailable || finishingChat || chatBusy}>{finishingChat ? "正在结束…" : "结束会话"}</button>
                 <button type="button" onClick={copyConversation} disabled={!messages.length}>复制会话</button>
                 <button type="button" className="danger-text" onClick={deleteConversation} disabled={!conversationId || chatBusy}>删除会话</button>
                 <a href="#human-support-card">真人求助</a>
               </div>
+
+              {showEyeBreakReminder && (
+                <aside className="eye-break-reminder" role="status" aria-live="polite">
+                  <div>
+                    <strong>已经聊了约 1 小时，先让眼睛和身体休息一下吧</strong>
+                    <p>可以看看远处、喝口水、站起来活动一下。休息不会删除内容，也不会阻止你稍后继续表达。</p>
+                  </div>
+                  <button type="button" onClick={() => setEyeBreakDismissed(true)}>我知道了</button>
+                </aside>
+              )}
+
+              <aside className="chat-cue-boundary" aria-label="AI 关心线索说明">
+                <strong>老师看不到普通对话原文</strong>
+                <p>普通对话每 3 个学生回合，可能产生一条只含类别、主题、核对时效和置信度的 AI 关心线索，交由本班授权模拟教师核对。线索可能有误，不是诊断，也不代表异常。</p>
+              </aside>
 
               <div className="chat-log" ref={chatLogRef} aria-label="与小伴的对话">
                 {messages.map((message) => (
@@ -1585,20 +1743,17 @@ export default function StudentCompanion() {
               </div>
 
               <div className="chat-live" aria-live="polite" aria-atomic="true">
-                {conversationUnavailable && !chatEnded
-                  ? turnsRemaining <= 0
-                    ? "本次 12 轮对话已完成。可以休息一下，或找一位真人继续聊。"
-                    : "本次 15 分钟对话已结束。可以休息一下，或找一位真人继续聊。"
-                  : chatStatus}
+                {chatStatus}
                 {cloudSpeechMessage ? ` ${cloudSpeechMessage}` : ""}
               </div>
+              {cueNotice && <p className="chat-cue-notice" role="status">{cueNotice}</p>}
               {error && <p className="form-error conversation-error" role="alert">{error}</p>}
 
               {conversationUnavailable ? (
                 <div className="conversation-finished">
                   <strong>本次对话已收束</strong>
-                  <p>{chatStatus || (turnsRemaining <= 0 ? "本次 12 轮已经完成。" : "本次 15 分钟已经结束。")}</p>
-                  <button className="primary-button" type="button" onClick={resetCheckin}>开始新的心情记录</button>
+                  <p>{chatStatus || "这段对话已经结束。需要时可以开始新的心情记录。"}</p>
+                  <button className="primary-button" type="button" onClick={() => void resetCheckin()}>开始新的心情记录</button>
                 </div>
               ) : (
                 <form className="chat-composer" onSubmit={(event) => void sendChat(event)}>
@@ -1621,7 +1776,7 @@ export default function StudentCompanion() {
                   <textarea
                     id="chat-draft"
                     rows={3}
-                    maxLength={300}
+                    maxLength={1_200}
                     value={chatDraft}
                     onChange={(event) => setChatDraft(event.target.value)}
                     onKeyDown={handleChatKeyDown}
@@ -1637,13 +1792,13 @@ export default function StudentCompanion() {
                       {recordingState === "notice" && (
                         <>
                           <strong>录音前请确认</strong>
-                          <p>最多 30 秒且不超过 2.5MB。只说虚构情境，禁止说出真实个人或学校信息。音频会发送至阿里云百炼 / Qwen 语音识别服务进行转写；本应用不保存原始音频，文字会先放进输入框由你检查。</p>
+                          <p>每段最多 2 分钟且不超过 8MB；转写并检查后可以继续录下一段。只说虚构情境，禁止说出真实个人或学校信息。音频会发送至阿里云百炼 / Qwen 语音识别服务进行转写；本应用不保存原始音频，文字会先放进输入框由你检查。</p>
                           <div className="inline-actions"><button type="button" className="small-primary" onClick={startRecording}>允许并开始</button><button type="button" className="small-quiet" onClick={cancelRecording}>取消</button></div>
                         </>
                       )}
                       {recordingState === "requesting" && <p>正在请求麦克风权限……</p>}
                       {recordingState === "recording" && (
-                        <><div className="recording-row"><span className="recording-dot" aria-hidden="true"></span><strong>正在录音</strong><time>0:{String(recordingSeconds).padStart(2, "0")} / 0:30</time></div><div className="inline-actions"><button type="button" className="small-primary" onClick={stopRecording}>停止并转成文字</button><button type="button" className="small-quiet" onClick={cancelRecording}>取消</button></div></>
+                        <><div className="recording-row"><span className="recording-dot" aria-hidden="true"></span><strong>正在录音</strong><time>{formatRecordingTime(recordingSeconds)} / 2:00</time></div><div className="inline-actions"><button type="button" className="small-primary" onClick={stopRecording}>停止并转成文字</button><button type="button" className="small-quiet" onClick={cancelRecording}>取消</button></div></>
                       )}
                       {recordingState === "transcribing" && <p>正在转成文字，请稍候……</p>}
                       {(recordingState === "review" || recordingState === "error") && (
@@ -1665,7 +1820,7 @@ export default function StudentCompanion() {
               <h2 id="saved-title">这次心情已经好好放下了</h2>
               <p>{notice || error || "不用继续解释。现在可以去做一件很小、很具体的事。"}</p>
               <div className="saved-actions">
-                <button className="primary-button" type="button" onClick={resetCheckin}>记录新的心情</button>
+                <button className="primary-button" type="button" onClick={() => void resetCheckin()}>记录新的心情</button>
                 <button className="quiet-button" type="button" onClick={() => { setHistoryOpen(true); void loadHistory(); }}>查看我的记录</button>
               </div>
             </div>

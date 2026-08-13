@@ -185,7 +185,7 @@ export const chatConversations = sqliteTable(
     pendingSince: text("pending_since"),
     leaseToken: text("lease_token"),
     endedReason: text("ended_reason", {
-      enum: ["expired", "turn_limit", "urgent", "student_deleted"],
+      enum: ["expired", "turn_limit", "urgent", "student_deleted", "student_finished"],
     }),
     endedAt: text("ended_at"),
     synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
@@ -193,10 +193,7 @@ export const chatConversations = sqliteTable(
     updatedAt: text("updated_at").notNull(),
   },
   (table) => [
-    check(
-      "chat_conversations_turns_check",
-      sql`${table.studentTurns} BETWEEN 0 AND 12`,
-    ),
+    check("chat_conversations_turns_check", sql`${table.studentTurns} >= 0`),
     check(
       "chat_conversations_in_flight_check",
       sql`${table.inFlight} IN (0, 1)`,
@@ -204,7 +201,7 @@ export const chatConversations = sqliteTable(
     check("chat_conversations_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     check(
       "chat_conversations_end_reason_check",
-      sql`${table.endedReason} IS NULL OR ${table.endedReason} IN ('expired', 'turn_limit', 'urgent', 'student_deleted')`,
+      sql`${table.endedReason} IS NULL OR ${table.endedReason} IN ('expired', 'turn_limit', 'urgent', 'student_deleted', 'student_finished')`,
     ),
     index("idx_chat_conversations_user_created").on(
       table.userId,
@@ -285,6 +282,93 @@ export const supportEvents = sqliteTable(
     check("support_events_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
     index("idx_support_events_class_created").on(table.classId, table.createdAt),
     index("idx_support_events_user_created").on(table.userId, table.createdAt),
+  ],
+);
+
+/** A non-diagnostic wellbeing cue. It never stores or exposes chat prose. */
+export const teacherAttentionEvents = sqliteTable(
+  "teacher_attention_events",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    classId: text("class_id").notNull(),
+    kind: text("kind", { enum: ["long_chat_session", "student_support_request"] }).notNull(),
+    sourceType: text("source_type", { enum: ["chat", "mood"] }).notNull(),
+    sourceId: text("source_id").notNull(),
+    status: text("status", { enum: ["new", "acknowledged", "resolved"] })
+      .notNull()
+      .default("new"),
+    assignedTeacherUserId: text("assigned_teacher_user_id"),
+    acknowledgedAt: text("acknowledged_at"),
+    resolvedAt: text("resolved_at"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    check(
+      "teacher_attention_events_kind_source_check",
+      sql`(${table.kind} = 'long_chat_session' AND ${table.sourceType} = 'chat') OR (${table.kind} = 'student_support_request' AND ${table.sourceType} = 'mood')`,
+    ),
+    check(
+      "teacher_attention_events_status_check",
+      sql`${table.status} IN ('new', 'acknowledged', 'resolved')`,
+    ),
+    check(
+      "teacher_attention_events_synthetic_check",
+      sql`${table.synthetic} IN (0, 1)`,
+    ),
+    uniqueIndex("idx_teacher_attention_events_kind_source").on(table.kind, table.sourceId),
+    index("idx_teacher_attention_events_class_created").on(table.classId, table.createdAt),
+    index("idx_teacher_attention_events_user_created").on(table.userId, table.createdAt),
+  ],
+);
+
+/**
+ * Structured, non-diagnostic classifier output. No message text, summary,
+ * embedding or model reasoning is copied into this table.
+ */
+export const conversationCues = sqliteTable(
+  "conversation_cues",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    userId: text("user_id").notNull(),
+    classId: text("class_id").notNull(),
+    windowTurn: integer("window_turn").notNull(),
+    observedExpression: text("observed_expression", {
+      enum: ["positive", "neutral", "mixed", "distress", "unclear"],
+    }).notNull(),
+    themesJson: text("themes_json").notNull(),
+    followUp: text("follow_up", { enum: ["routine_check_in", "timely_check_in"] }).notNull(),
+    trend: text("trend", {
+      enum: ["not_enough_data", "stable", "easing", "intensifying", "unclear"],
+    }).notNull(),
+    confidence: text("confidence", { enum: ["low", "medium", "high"] }).notNull(),
+    basisJson: text("basis_json").notNull(),
+    analyzerVersion: text("analyzer_version").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    model: text("model").notNull(),
+    status: text("status", {
+      enum: ["new", "acknowledged", "resolved", "dismissed_inaccurate"],
+    }).notNull().default("new"),
+    assignedTeacherUserId: text("assigned_teacher_user_id"),
+    acknowledgedAt: text("acknowledged_at"),
+    resolvedAt: text("resolved_at"),
+    dismissedAt: text("dismissed_at"),
+    synthetic: integer("synthetic", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    check("conversation_cues_window_check", sql`${table.windowTurn} > 0 AND ${table.windowTurn} % 3 = 0`),
+    check("conversation_cues_expression_check", sql`${table.observedExpression} IN ('positive','neutral','mixed','distress','unclear')`),
+    check("conversation_cues_follow_up_check", sql`${table.followUp} IN ('routine_check_in','timely_check_in')`),
+    check("conversation_cues_trend_check", sql`${table.trend} IN ('not_enough_data','stable','easing','intensifying','unclear')`),
+    check("conversation_cues_confidence_check", sql`${table.confidence} IN ('low','medium','high')`),
+    check("conversation_cues_status_check", sql`${table.status} IN ('new','acknowledged','resolved','dismissed_inaccurate')`),
+    check("conversation_cues_synthetic_check", sql`${table.synthetic} IN (0, 1)`),
+    uniqueIndex("idx_conversation_cues_window").on(table.conversationId, table.windowTurn),
+    index("idx_conversation_cues_class_created").on(table.classId, table.createdAt),
+    index("idx_conversation_cues_user_created").on(table.userId, table.createdAt),
   ],
 );
 

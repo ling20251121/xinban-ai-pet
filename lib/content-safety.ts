@@ -16,6 +16,13 @@ const SANDBOX_PII_PATTERNS: readonly RegExp[] = [
   /(?:微信|QQ|手机号|电话|住址|地址|学校|班级|姓名|学号)\s*[:：是为]\s*[^，。；;\n]{1,40}/u,
 ];
 
+const SPOKEN_DIGIT = /[〇零一二两三四五六七八九幺]/u;
+const SPOKEN_DIGIT_RUN = /[〇零一二两三四五六七八九幺](?:[\s，,、.。\-—]*[〇零一二两三四五六七八九幺]){10,17}/gu;
+const SPOKEN_DIGIT_VALUES: Readonly<Record<string, string>> = {
+  "〇": "0", "零": "0", "一": "1", "幺": "1", "二": "2", "两": "2",
+  "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8", "九": "9",
+};
+
 const UNSAFE_OUTPUT_PATTERNS: readonly RegExp[] = [
   /只有我(?:懂|理解|陪)|我会永远陪|不需要(?:老师|家长|大人)|别告诉(?:别人|老师|家长)|替你保密/iu,
   /你(?:患有|得了|就是)(?:抑郁|焦虑|精神|人格)|确诊|临床诊断/iu,
@@ -36,11 +43,33 @@ function clean(value: string): string {
     .trim();
 }
 
+function containsSpokenPhoneOrId(value: string): boolean {
+  if (!SPOKEN_DIGIT.test(value)) return false;
+  for (const match of value.matchAll(SPOKEN_DIGIT_RUN)) {
+    const digits = Array.from(match[0])
+      .map((character) => SPOKEN_DIGIT_VALUES[character] ?? "")
+      .join("");
+    if (/^1[3-9]\d{9}$/u.test(digits) || /^\d{17}[\dXx]$/u.test(digits)) return true;
+  }
+  return false;
+}
+
 export function prepareStudentText(value: string, maxCharacters: number): string {
   let prepared = clean(value).normalize("NFKC");
   for (const [pattern, replacement] of REDACTION_RULES) {
     prepared = prepared.replace(pattern, replacement);
   }
+  // ASR commonly emits phone or ID digits as Chinese words separated by
+  // punctuation. Redact the whole run before any text is sent to Qwen, even
+  // outside the adult synthetic sandbox where input is not hard-rejected.
+  prepared = prepared.replace(SPOKEN_DIGIT_RUN, (match) => {
+    const digits = Array.from(match)
+      .map((character) => SPOKEN_DIGIT_VALUES[character] ?? "")
+      .join("");
+    if (/^1[3-9]\d{9}$/u.test(digits)) return "[已隐藏手机号]";
+    if (/^\d{17}[\dXx]$/u.test(digits)) return "[已隐藏证件号]";
+    return match;
+  });
   return Array.from(prepared).slice(0, maxCharacters).join("");
 }
 
@@ -48,7 +77,8 @@ export function prepareStudentText(value: string, maxCharacters: number): string
 export function rejectSandboxPersonalInformation(...values: string[]): void {
   if (
     values.some((value) =>
-      SANDBOX_PII_PATTERNS.some((pattern) => pattern.test(value.normalize("NFKC"))),
+      SANDBOX_PII_PATTERNS.some((pattern) => pattern.test(value.normalize("NFKC"))) ||
+      containsSpokenPhoneOrId(value.normalize("NFKC")),
     )
   ) {
     throw new ApiError(

@@ -5,7 +5,11 @@ import type {
 } from "@/lib/database-types";
 
 class D1StatementAdapter implements DatabaseStatement {
-  constructor(readonly statement: D1PreparedStatement) {}
+  readonly statement: D1PreparedStatement;
+
+  constructor(statement: D1PreparedStatement) {
+    this.statement = statement;
+  }
 
   bind(...values: unknown[]): DatabaseStatement {
     return new D1StatementAdapter(this.statement.bind(...values));
@@ -26,8 +30,11 @@ class D1StatementAdapter implements DatabaseStatement {
 
 export class D1SystemDatabase implements SystemDatabase {
   readonly dialect = "d1" as const;
+  private readonly database: D1Database;
 
-  constructor(private readonly database: D1Database) {}
+  constructor(database: D1Database) {
+    this.database = database;
+  }
 
   prepare(sql: string): DatabaseStatement {
     return new D1StatementAdapter(this.database.prepare(sql));

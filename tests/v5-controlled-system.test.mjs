@@ -69,6 +69,31 @@ function wavDataUrl(seconds = 1) {
   return `data:audio/wav;base64,${wav.toString("base64")}`;
 }
 
+function paddedWavDataUrl(totalBytes, seconds = 1) {
+  const sampleRate = 8_000;
+  const dataSize = Math.floor(seconds * sampleRate * 2);
+  const junkSize = totalBytes - 52 - dataSize;
+  assert.ok(junkSize >= 0);
+  const wav = Buffer.alloc(totalBytes);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(totalBytes - 8, 4);
+  wav.write("WAVE", 8);
+  wav.write("fmt ", 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("JUNK", 36);
+  wav.writeUInt32LE(junkSize, 40);
+  const dataOffset = 44 + junkSize;
+  wav.write("data", dataOffset);
+  wav.writeUInt32LE(dataSize, dataOffset + 4);
+  return `data:audio/wav;base64,${wav.toString("base64")}`;
+}
+
 test("0000 then 0001 preserves every legacy mood field", async (t) => {
   const { mf, db } = await newD1();
   t.after(() => mf.dispose());
@@ -260,14 +285,20 @@ test("controlled two-class flow enforces identity, consent and teacher scope", a
 
   const originalVoiceFetch = globalThis.fetch;
   let asrRequest;
+  let asrCalls = 0;
+  let asrAudioTokens = 25;
+  let includeAsrUsage = true;
   let ttsRequest;
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url.endsWith("/chat/completions")) {
+      asrCalls += 1;
       asrRequest = JSON.parse(String(init?.body));
       return Response.json({
         choices: [{ message: { content: "Fictional short transcript." } }],
-        usage: { prompt_tokens_details: { audio_tokens: 25 } },
+        ...(includeAsrUsage
+          ? { usage: { prompt_tokens_details: { audio_tokens: asrAudioTokens } } }
+          : {}),
       });
     }
     if (url.includes("/multimodal-generation/generation")) {
@@ -305,6 +336,83 @@ test("controlled two-class flow enforces identity, consent and teacher scope", a
     assert.equal((await transcription.json()).text, "Fictional short transcript.");
     assert.equal(asrRequest.model, "qwen3-asr-flash-2026-02-10");
 
+    asrAudioTokens = 3_000;
+    const twoMinuteTranscription = await callApi(
+      "/api/voice/transcribe",
+      mutation(
+        { dataUrl: wavDataUrl(120), mimeType: "audio/wav" },
+        studentCookie,
+        { "x-forwarded-for": "198.51.100.120" },
+      ),
+      voiceBindings,
+    );
+    assert.equal(twoMinuteTranscription.status, 200, await twoMinuteTranscription.clone().text());
+
+    const callsBeforeLongContainer = asrCalls;
+    const tooLongContainer = await callApi(
+      "/api/voice/transcribe",
+      mutation(
+        { dataUrl: wavDataUrl(121), mimeType: "audio/wav" },
+        studentCookie,
+        { "x-forwarded-for": "198.51.100.121" },
+      ),
+      voiceBindings,
+    );
+    assert.equal(tooLongContainer.status, 413);
+    assert.match((await tooLongContainer.json()).error, /2 分钟/u);
+    assert.equal(asrCalls, callsBeforeLongContainer, "over-limit container must not reach Qwen");
+
+    asrAudioTokens = 3_001;
+    const providerReportedTooLong = await callApi(
+      "/api/voice/transcribe",
+      mutation(
+        { dataUrl: wavDataUrl(1.1), mimeType: "audio/wav" },
+        studentCookie,
+        { "x-forwarded-for": "198.51.100.122" },
+      ),
+      voiceBindings,
+    );
+    assert.equal(providerReportedTooLong.status, 413);
+
+    includeAsrUsage = false;
+    const missingProviderUsage = await callApi(
+      "/api/voice/transcribe",
+      mutation(
+        { dataUrl: wavDataUrl(1.2), mimeType: "audio/wav" },
+        studentCookie,
+        { "x-forwarded-for": "198.51.100.123" },
+      ),
+      voiceBindings,
+    );
+    assert.equal(missingProviderUsage.status, 502, "provider duration metadata must fail closed");
+    includeAsrUsage = true;
+    asrAudioTokens = 25;
+
+    const maximumSize = await callApi(
+      "/api/voice/transcribe",
+      mutation(
+        { dataUrl: paddedWavDataUrl(8_000_000), mimeType: "audio/wav" },
+        studentCookie,
+        { "x-forwarded-for": "198.51.100.124" },
+      ),
+      voiceBindings,
+    );
+    assert.equal(maximumSize.status, 200, await maximumSize.clone().text());
+
+    const callsBeforeOversize = asrCalls;
+    const oversizedAudio = await callApi(
+      "/api/voice/transcribe",
+      mutation(
+        { dataUrl: paddedWavDataUrl(8_000_001), mimeType: "audio/wav" },
+        studentCookie,
+        { "x-forwarded-for": "198.51.100.125" },
+      ),
+      voiceBindings,
+    );
+    assert.equal(oversizedAudio.status, 413);
+    assert.match((await oversizedAudio.json()).error, /8 MB/u);
+    assert.equal(asrCalls, callsBeforeOversize, "oversized audio must not reach Qwen");
+
     const synthesis = await callApi(
       "/api/voice/synthesize",
       mutation({ text: "Take one small step.", userInitiated: true }, studentCookie),
@@ -327,10 +435,25 @@ test("controlled two-class flow enforces identity, consent and teacher scope", a
   };
   const originalFetch = globalThis.fetch;
   let providerCalls = 0;
+  let analyzerCalls = 0;
   const providerBodies = [];
   globalThis.fetch = async (_input, init) => {
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    if (body.response_format?.type === "json_object") {
+      analyzerCalls += 1;
+      return Response.json({
+        choices: [{ message: { content: JSON.stringify({
+          observedExpression: "mixed",
+          themes: ["school_pressure"],
+          followUp: "routine_check_in",
+          trend: "stable",
+          confidence: "medium",
+          basis: ["repeated_distress_expression"],
+        }) } }],
+      });
+    }
     providerCalls += 1;
-    if (init?.body) providerBodies.push(JSON.parse(String(init.body)));
+    providerBodies.push(body);
     return Response.json({
       choices: [{ message: { content: "I hear you. Take one small step, then talk with a trusted adult." } }],
     });
@@ -421,7 +544,7 @@ test("controlled two-class flow enforces identity, consent and teacher scope", a
     );
 
     let conversationId;
-    for (let turn = 1; turn <= 12; turn += 1) {
+    for (let turn = 1; turn <= 13; turn += 1) {
       const response = await callApi(
         "/api/chat",
         mutation({
@@ -435,19 +558,112 @@ test("controlled two-class flow enforces identity, consent and teacher scope", a
       const body = await response.json();
       conversationId ??= body.conversationId;
       assert.equal(body.studentTurns, turn);
-      assert.equal(body.ended, turn === 12);
+      assert.equal(body.ended, false);
+      if (turn % 3 === 0) {
+        assert.equal(body.analysisAvailable, true);
+        assert.equal(body.cueCreated, true);
+        assert.equal("cueSummary" in body, false, "student API returns only whether a cue was created");
+      } else {
+        assert.equal("analysisAvailable" in body, false);
+      }
     }
-    assert.equal(providerCalls, 12);
+    assert.equal(providerCalls, 13);
+    assert.equal(analyzerCalls, 4);
+    const cueRows = await db.prepare(`SELECT window_turn,observed_expression,themes_json,
+      follow_up,trend,confidence,basis_json,status FROM conversation_cues
+      WHERE conversation_id=? ORDER BY window_turn`).bind(conversationId).all();
+    assert.deepEqual(cueRows.results.map((row) => row.window_turn), [3, 6, 9, 12]);
+    assert.doesNotMatch(JSON.stringify(cueRows.results), /fictional test turn/iu);
+
+    globalThis.fetch = async (_input, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (body.response_format?.type === "json_object") {
+        analyzerCalls += 1;
+        return Response.json({ choices: [{ message: { content: "malformed" } }] });
+      }
+      providerCalls += 1;
+      providerBodies.push(body);
+      return Response.json({
+        choices: [{ message: { content: "I hear you. Take one small step, then talk with a trusted adult." } }],
+      });
+    };
+    for (let turn = 14; turn <= 15; turn += 1) {
+      const response = await callApi(
+        "/api/chat",
+        mutation({ mood: "calm", message: `Safe malformed analysis turn ${turn}.`, conversationId }, studentCookie),
+        providerBindings,
+      );
+      assert.equal(response.status, 200, await response.clone().text());
+      const body = await response.json();
+      if (turn === 15) {
+        assert.equal(body.analysisAvailable, false);
+        assert.equal(body.cueCreated, false);
+      }
+    }
+    assert.equal(providerCalls, 15, "bad analyzer JSON must not break or roll back chat replies");
+    assert.equal(analyzerCalls, 5);
     assert.ok(providerBodies.every((body) => body.model === "qwen3.7-plus-2026-05-26"));
     assert.ok(providerBodies.every((body) => body.enable_thinking === false));
     assert.ok(providerBodies.every((body) => body.messages.length <= 14));
-    const thirteenth = await callApi(
+    const finishOpenConversation = await callApi(
+      "/api/chat",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", origin: ORIGIN, cookie: studentCookie },
+        body: JSON.stringify({ conversationId }),
+      },
+      providerBindings,
+    );
+    assert.equal(finishOpenConversation.status, 200, await finishOpenConversation.clone().text());
+    const afterFinish = await callApi(
       "/api/chat",
       mutation({ mood: "平静", message: "This must not call Qwen.", conversationId }, studentCookie),
       providerBindings,
     );
-    assert.equal(thirteenth.status, 409);
-    assert.equal(providerCalls, 12);
+    assert.equal(afterFinish.status, 409);
+    assert.equal(providerCalls, 15);
+
+    const atomicDelete = await callApi(
+      "/api/student/data",
+      { method: "DELETE", headers: { origin: ORIGIN, cookie: studentCookie } },
+      providerBindings,
+    );
+    assert.equal(atomicDelete.status, 200, await atomicDelete.clone().text());
+    const deletedPayload = await atomicDelete.json();
+    assert.ok(deletedPayload.deleted.messages >= 26);
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) count FROM chat_messages WHERE user_id=?")
+        .bind(studentA.id).first()).count,
+      0,
+    );
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) count FROM chat_conversations WHERE user_id=?")
+        .bind(studentA.id).first()).count,
+      0,
+    );
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) count FROM mood_entries WHERE user_id=?")
+        .bind(studentA.id).first()).count,
+      0,
+    );
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) count FROM support_events WHERE user_id=?")
+        .bind(studentA.id).first()).count,
+      1,
+      "structured crisis audit remains without student prose",
+    );
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) count FROM conversation_cues WHERE user_id=?")
+        .bind(studentA.id).first()).count,
+      4,
+      "text-free teacher cue audit remains after student prose is deleted",
+    );
+    assert.doesNotMatch(
+      JSON.stringify((await db.prepare(`SELECT observed_expression,themes_json,follow_up,
+        trend,confidence,basis_json FROM conversation_cues WHERE user_id=?`)
+        .bind(studentA.id).all()).results),
+      /fictional test turn|Safe malformed analysis/iu,
+    );
 
     const loginB = await callApi(
       "/api/auth/login",
@@ -610,6 +826,7 @@ test("adult evaluation only blocks every school-account and student-data surface
     ["/api/chat", mutation({ mood: "calm", message: "synthetic" }, studentCookie)],
     ["/api/chat", { headers: { cookie: studentCookie } }],
     ["/api/chat/export", { headers: { cookie: studentCookie } }],
+    ["/api/student/data", { method: "DELETE", headers: { origin: ORIGIN, cookie: studentCookie } }],
     ["/api/chat", { method: "DELETE", headers: { origin: ORIGIN, "content-type": "application/json", cookie: studentCookie }, body: "{}" }],
     ["/api/auth/consent", mutation({ accepted: true }, studentCookie)],
     ["/api/auth/password", mutation({ currentPassword: "Old!Password123", newPassword: "New!Password456" }, studentCookie)],
@@ -633,6 +850,8 @@ test("adult evaluation only blocks every school-account and student-data surface
     "/api/teacher/students",
     "/api/teacher/summary",
     "/api/teacher/safety-events",
+    "/api/teacher/attention-events",
+    "/api/teacher/conversation-cues",
   ]) {
     const response = await callApi(pathname, { headers: { cookie: teacherCookie } }, bindings);
     assert.equal(response.status, 403, pathname);
@@ -655,6 +874,22 @@ test("adult evaluation only blocks every school-account and student-data surface
         method: "PATCH",
         headers: { origin: ORIGIN, "content-type": "application/json", cookie: teacherCookie },
         body: JSON.stringify({ eventId: "synthetic-event", status: "reviewed" }),
+      },
+    ],
+    [
+      "/api/teacher/conversation-cues",
+      {
+        method: "PATCH",
+        headers: { origin: ORIGIN, "content-type": "application/json", cookie: teacherCookie },
+        body: JSON.stringify({ cueId: "synthetic-cue", status: "acknowledged" }),
+      },
+    ],
+    [
+      "/api/teacher/attention-events",
+      {
+        method: "PATCH",
+        headers: { origin: ORIGIN, "content-type": "application/json", cookie: teacherCookie },
+        body: JSON.stringify({ eventId: "synthetic-attention", status: "acknowledged" }),
       },
     ],
   ];

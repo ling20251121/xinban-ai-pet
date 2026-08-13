@@ -120,6 +120,77 @@ test("student wellbeing tools provide an opt-in breathing exercise and real supp
   assert.match(circle, /不会自动拨号或发送消息/u);
 });
 
+test("student chat is open-ended with a one-hour rest reminder and two-minute voice clips", async () => {
+  const studentSource = await readFile(new URL("../app/StudentCompanion.tsx", import.meta.url), "utf8");
+  const conversationSource = await readFile(new URL("../lib/conversations.ts", import.meta.url), "utf8");
+  const voiceSource = await readFile(new URL("../lib/voice.ts", import.meta.url), "utf8");
+  assert.match(studentSource, /不设固定时长或轮次上限/u);
+  assert.match(studentSource, /EYE_BREAK_SECONDS = 60 \* 60/u);
+  assert.match(studentSource, /已经聊了约 1 小时/u);
+  assert.match(studentSource, /method: "PATCH"[\s\S]*conversationId/u);
+  assert.doesNotMatch(studentSource, /剩余时间|剩余轮次|本次 12 轮|本次 15 分钟/u);
+  assert.doesNotMatch(conversationSource, /MAX_STUDENT_TURNS|CHAT_REQUESTS_PER_DAY/u);
+  assert.match(conversationSource, /CHAT_REQUESTS_PER_MINUTE = 30/u);
+  assert.match(conversationSource, /student_turns=CASE WHEN student_turns>0 THEN student_turns-1 ELSE 0 END/u);
+  assert.match(studentSource, /RECORDING_LIMIT_SECONDS = 120/u);
+  assert.match(studentSource, /没有自动截断。请先删减输入框内容/u);
+  assert.doesNotMatch(studentSource, /setNote\([\s\S]{0,160}slice\(0, 600\)/u);
+  assert.match(studentSource, /每段最多录 2 分钟/u);
+  assert.match(studentSource, /转写并检查后可以继续录下一段/u);
+  assert.match(voiceSource, /MAX_AUDIO_DURATION_MS = 120_000/u);
+});
+
+test("student restores an unfinished conversation after refresh", async () => {
+  const studentSource = await readFile(new URL("../app/StudentCompanion.tsx", import.meta.url), "utf8");
+  assert.match(studentSource, /fetch\("\/api\/chat", \{ cache: "no-store" \}\)/u);
+  assert.match(studentSource, /conversationId=\$\{encodeURIComponent\(openConversation\.id\)\}/u);
+  assert.match(studentSource, /已恢复这段未结束的对话/u);
+  assert.match(studentSource, /setPhase\("chat"\)/u);
+});
+
+test("three-hour chat creates a separate non-diagnostic teacher attention flow", async () => {
+  const conversationSource = await readFile(new URL("../lib/conversations.ts", import.meta.url), "utf8");
+  const attentionSource = await readFile(new URL("../lib/attention-events.ts", import.meta.url), "utf8");
+  const dashboardSource = await readFile(new URL("../app/teacher/TeacherDashboard.tsx", import.meta.url), "utf8");
+  assert.match(conversationSource, /LONG_CHAT_ATTENTION_MILLISECONDS = 3 \* 60 \* 60 \* 1_000/u);
+  assert.match(conversationSource, /ON CONFLICT \(kind,source_id\) DO NOTHING/u);
+  assert.match(attentionSource, /c\.teacher_user_id=\?/u);
+  assert.match(attentionSource, /e\.synthetic=1 AND u\.synthetic=1 AND c\.synthetic=1/u);
+  assert.match(dashboardSource, /同一对话持续超过 3 小时/u);
+  assert.match(dashboardSource, /学生主动请求支持/u);
+  assert.match(dashboardSource, /不代表异常或危机/u);
+  assert.match(dashboardSource, /不显示心情或对话原文/u);
+});
+
+test("AI care cues are disclosed to students and require teacher verification", async () => {
+  const studentSource = await readFile(new URL("../app/StudentCompanion.tsx", import.meta.url), "utf8");
+  const dashboardSource = await readFile(new URL("../app/teacher/TeacherDashboard.tsx", import.meta.url), "utf8");
+  const studentCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const teacherCss = await readFile(new URL("../app/teacher/teacher.css", import.meta.url), "utf8");
+  assert.match(studentSource, /普通对话每 3 个学生回合/u);
+  assert.match(studentSource, /老师看不到普通对话原文/u);
+  assert.match(studentSource, /原文仍保存在学生账户中，并会由 Qwen 处理/u);
+  assert.match(studentSource, /cueCreated\?: boolean/u);
+  assert.match(studentSource, /analysisAvailable\?: boolean/u);
+  assert.match(dashboardSource, /fetch\(`\/api\/teacher\/conversation-cues/u);
+  assert.match(dashboardSource, /cueId: item\.id, status/u);
+  assert.match(dashboardSource, /AI 关心线索 · 非危机/u);
+  assert.ok(
+    dashboardSource.indexOf("紧急人工核对队列") < dashboardSource.indexOf("学生主动支持与休息提示") &&
+      dashboardSource.indexOf("学生主动支持与休息提示") < dashboardSource.indexOf('<h2 id="conversation-cue-title">待人工核对'),
+    "teacher workbench must present deterministic urgent, explicit/routine, then AI cues",
+  );
+  assert.match(dashboardSource, /不是诊断或异常判定/u);
+  assert.match(dashboardSource, /不能据此写成“学生正常”/u);
+  assert.match(dashboardSource, /dismissed_inaccurate/u);
+  assert.match(dashboardSource, /safeLabel\(expressionLabels/u);
+  assert.match(dashboardSource, /safeLabels\(themeLabels/u);
+  assert.doesNotMatch(dashboardSource, /cue\.(?:message|content|transcript|originalText)/u);
+  assert.match(studentCss, /\.ai-cue-disclosure/u);
+  assert.match(teacherCss, /\.conversation-cue-list/u);
+  assert.match(teacherCss, /@media \(max-width: 720px\)[\s\S]*\.conversation-cue-list \{ grid-template-columns: 1fr/u);
+});
+
 test("v5 protected APIs reject anonymous sessions", async () => {
   for (const pathname of [
     "/api/moods",
@@ -127,12 +198,19 @@ test("v5 protected APIs reject anonymous sessions", async () => {
     "/api/chat/export",
     "/api/teacher/summary",
     "/api/teacher/classes",
+    "/api/teacher/attention-events",
+    "/api/teacher/conversation-cues",
     "/api/teacher/students",
     "/api/teacher/safety-events",
   ]) {
     const response = await call(pathname, {}, { ADULT_EVALUATION_ONLY: "false" });
     assert.equal(response.status, 401, pathname);
   }
+  const studentData = await call("/api/student/data", {
+    method: "DELETE",
+    headers: { origin: "http://localhost" },
+  }, { ADULT_EVALUATION_ONLY: "false" });
+  assert.equal(studentData.status, 401, "/api/student/data");
 });
 
 test("cookie mutations reject missing and cross-site Origin before work", async () => {

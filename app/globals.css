@@ -247,6 +247,28 @@
 .conversation-toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px clamp(22px,4vw,48px); border-bottom: 1px solid #f0edf4; background: #fdfcff; }
 .conversation-toolbar button, .conversation-toolbar a { min-height: 38px; display: inline-flex; align-items: center; padding: 0 11px; border: 1px solid #e4dfeb; border-radius: 10px; color: #686071; background: #fff; font: inherit; font-size: .72rem; font-weight: 700; text-decoration: none; cursor: pointer; }
 .conversation-toolbar .danger-text { color: #a24650; }
+.eye-break-reminder { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 12px clamp(22px,4vw,48px) 0; padding: 14px 16px; border: 1px solid #d9d1f2; border-radius: 15px; color: #4c4562; background: linear-gradient(135deg,#f6f2ff,#eef7ff); }
+.eye-break-reminder strong { color: #4f3c96; }
+.eye-break-reminder p { margin: 4px 0 0; color: #706980; font-size: .75rem; line-height: 1.6; }
+.eye-break-reminder button { flex: none; min-height: 42px; padding: 0 13px; border: 1px solid #cfc5ed; border-radius: 11px; color: #5b479e; background: #fff; font: inherit; font-size: .74rem; font-weight: 800; cursor: pointer; }
+
+.ai-cue-disclosure { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px; margin-top: 14px; padding: 15px; border: 1px solid #d7cbed; border-radius: 16px; color: #4c4364; background: #faf7ff; }
+.ai-cue-disclosure__mark { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 14px; color: #fff; background: #755db5; font-size: .68rem; font-weight: 900; }
+.ai-cue-disclosure strong { color: #40365f; }
+.ai-cue-disclosure p { margin: 5px 0 7px; font-size: .76rem; line-height: 1.7; }
+.ai-cue-disclosure ul { display: grid; gap: 3px; margin: 0; padding-left: 1.2rem; color: #6d6677; font-size: .72rem; line-height: 1.6; }
+.chat-cue-boundary { margin: 14px clamp(22px,4vw,48px) 0; padding: 12px 14px; border: 1px solid #d8d0e9; border-radius: 14px; color: #5e5372; background: #fbf9ff; }
+.chat-cue-boundary strong { font-size: .75rem; }
+.chat-cue-boundary p { margin: 3px 0 0; font-size: .7rem; line-height: 1.6; }
+.chat-cue-notice { margin: 3px clamp(22px,4vw,48px); padding: 8px 11px; border-radius: 10px; color: #315e52; background: #edf7f3; font-size: .7rem; }
+
+@media (max-width: 620px) {
+  .eye-break-reminder { align-items: stretch; flex-direction: column; }
+  .eye-break-reminder button { min-height: 44px; }
+  .ai-cue-disclosure { grid-template-columns: 1fr; }
+  .ai-cue-disclosure__mark { width: max-content; height: 30px; padding: 0 9px; border-radius: 9px; }
+  .chat-cue-boundary { margin-inline: 14px; }
+}
 .chat-log { overflow-y: auto; padding: 28px clamp(22px,4vw,48px); scroll-padding-bottom: 30px; }
 .chat-message { display: flex; align-items: flex-start; gap: 10px; max-width: 88%; margin-bottom: 20px; }
 .chat-message.is-user { flex-direction: row-reverse; margin-left: auto; }

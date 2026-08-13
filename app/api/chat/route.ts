@@ -2,6 +2,7 @@ import { getCompanionReply } from "@/lib/ai";
 import { requireStudentIdentity, requireStudentReady } from "@/lib/auth";
 import {
   deleteConversations,
+  finishConversation,
   getConversation,
   getOrCreateConversation,
   listConversations,
@@ -10,7 +11,6 @@ import {
   reserveTurn,
   saveAssistantAndFinish,
   saveUrgentConversation,
-  saveUserMessage,
 } from "@/lib/conversations";
 import {
   ensureStrictSameOrigin,
@@ -23,6 +23,12 @@ import { asObject, parseChatPayload, parseOptionalEntryId } from "@/lib/validati
 import { getRuntimeEnv } from "@/db";
 import { rejectSandboxPersonalInformation } from "@/lib/content-safety";
 import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
+import {
+  analyzeConversationWindow,
+  recentStudentTurns,
+  saveConversationCue,
+  shouldAnalyzeConversationTurn,
+} from "@/lib/chat-cues";
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -47,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
       rejectSandboxPersonalInformation(payload.mood, payload.message);
     }
     const conversation = await getOrCreateConversation(user, payload.conversationId);
-    const reservation = await reserveTurn(user, conversation);
+    const reservation = await reserveTurn(user, conversation, request);
     const { studentTurns } = reservation;
     leaseToken = reservation.leaseToken;
     reservedConversation = conversation;
@@ -72,18 +78,11 @@ export async function POST(request: Request): Promise<Response> {
         provider: "local-safety",
         conversationId: conversation.id,
         studentTurns,
-        expiresAt: updated.expires_at,
+        startedAt: updated.started_at,
         ended: true,
       });
     }
 
-    await saveUserMessage(
-      user,
-      conversation.id,
-      reservation.leaseToken,
-      payload.message,
-      false,
-    );
     // Exactly six prior user/assistant pairs at most; getCompanionReply applies
     // a second per-message de-identification pass before the Qwen request.
     const companion = await getCompanionReply(payload.mood, payload.message, history);
@@ -91,17 +90,44 @@ export async function POST(request: Request): Promise<Response> {
       user,
       conversation.id,
       reservation.leaseToken,
+      payload.message,
       companion.reply,
       false,
     );
+    let analysisAvailable: boolean | undefined;
+    let cueCreated = false;
+    if (shouldAnalyzeConversationTurn(studentTurns)) {
+      // The reply is already committed. Cue analysis is deliberately
+      // best-effort: a timeout, malformed JSON or storage failure must never
+      // roll back the student's already committed conversation turn.
+      try {
+        const window = await recentStudentTurns(conversation.id, user.id);
+        const analyzed = await analyzeConversationWindow(window);
+        if (analyzed) {
+          analysisAvailable = true;
+          cueCreated = await saveConversationCue({
+            user,
+            conversationId: conversation.id,
+            windowTurn: studentTurns,
+            analysis: analyzed.analysis,
+            model: analyzed.model,
+          }).catch(() => false);
+        } else {
+          analysisAvailable = false;
+        }
+      } catch {
+        analysisAvailable = false;
+      }
+    }
     return jsonResponse({
       reply: companion.reply,
       urgent: false,
       provider: companion.provider,
       conversationId: conversation.id,
       studentTurns,
-      expiresAt: updated.expires_at,
+      startedAt: updated.started_at,
       ended: Boolean(updated.ended_at),
+      ...(analysisAvailable === undefined ? {} : { analysisAvailable, cueCreated }),
     });
   } catch (error) {
     if (reservedConversation && reservedUserId && leaseToken) {
@@ -111,6 +137,19 @@ export async function POST(request: Request): Promise<Response> {
         leaseToken,
       ).catch(() => undefined);
     }
+    return handleApiError(error);
+  }
+}
+
+export async function PATCH(request: Request): Promise<Response> {
+  try {
+    ensureStrictSameOrigin(request);
+    const { user } = await requireStudentIdentity(request);
+    const body = asObject(await readJsonBody<unknown>(request, 4_096));
+    const conversationId = parseOptionalEntryId(body.conversationId);
+    const conversation = await finishConversation(user, conversationId);
+    return jsonResponse({ ok: true, conversation });
+  } catch (error) {
     return handleApiError(error);
   }
 }

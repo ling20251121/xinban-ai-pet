@@ -174,6 +174,13 @@ export async function initializeSyntheticSchool() {
         now,
       );
     }),
+    database.prepare(`INSERT INTO teacher_attention_events (
+      id,user_id,class_id,kind,source_type,source_id,status,
+      assigned_teacher_user_id,acknowledged_at,resolved_at,synthetic,created_at
+    ) VALUES (?,?,?,'student_support_request','mood',?,'new',NULL,NULL,NULL,1,?)`)
+      .bind(
+        crypto.randomUUID(), students[1].id, classroomId, moodIds[1], now,
+      ),
     database.prepare(`INSERT INTO mood_entries (
       id,participant_hash,participant_code,user_id,class_id,mood,mood_score,note,goal,
       wants_support,safety_level,support_evidence,synthetic,created_at
@@ -225,8 +232,10 @@ export async function resetSyntheticSchool() {
   const database = await getSystemDatabase();
   const statements = [
     database.prepare("DELETE FROM auth_sessions WHERE user_id IN (SELECT id FROM app_users WHERE synthetic=1)"),
+    database.prepare("DELETE FROM conversation_cues WHERE synthetic=1"),
     database.prepare("DELETE FROM chat_messages WHERE synthetic=1"),
     database.prepare("DELETE FROM support_events WHERE synthetic=1"),
+    database.prepare("DELETE FROM teacher_attention_events WHERE synthetic=1"),
     database.prepare("DELETE FROM chat_conversations WHERE synthetic=1"),
     database.prepare("DELETE FROM mood_entries WHERE synthetic=1"),
     database.prepare("DELETE FROM app_users WHERE synthetic=1"),

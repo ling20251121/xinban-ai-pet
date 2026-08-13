@@ -87,6 +87,42 @@ type SafetyEvent = {
   acknowledgedAt: string | null;
   resolvedAt: string | null;
 };
+type AttentionEvent = {
+  id: string;
+  kind: "long_chat_session" | "student_support_request";
+  sourceType: "chat" | "mood";
+  sourceId: string;
+  studentId: string;
+  studentUsername: string;
+  classId: string;
+  className: string;
+  status: "new" | "acknowledged" | "resolved";
+  assignedTeacherUserId: string | null;
+  createdAt: string;
+  acknowledgedAt: string | null;
+  resolvedAt: string | null;
+};
+type ConversationCue = {
+  id: string;
+  studentId: string;
+  studentUsername: string;
+  classId: string;
+  className: string;
+  observedExpression: string;
+  themes: string[];
+  followUp: string;
+  trend: string;
+  confidence: string;
+  basis: string[];
+  modelName?: string;
+  promptVersion?: string;
+  schemaVersion?: string;
+  status: "new" | "acknowledged" | "resolved" | "dismissed_inaccurate";
+  assignedTeacherUserId: string | null;
+  createdAt: string;
+  acknowledgedAt: string | null;
+  resolvedAt: string | null;
+};
 
 const moodMeta: Record<string, { label: string; color: string }> = {
   happy: { label: "开心", color: "#eea06c" },
@@ -101,6 +137,50 @@ const moodMeta: Record<string, { label: string; color: string }> = {
 
 const sourceLabels = { mood: "心情记录", chat: "AI 对话", voice: "语音转写" };
 const statusLabels = { new: "待教师查看", acknowledged: "已确认", resolved: "已完成核对" };
+const cueStatusLabels: Record<ConversationCue["status"], string> = {
+  new: "待教师核对",
+  acknowledged: "核对中",
+  resolved: "已完成核对",
+  dismissed_inaccurate: "已标记不准确",
+};
+const expressionLabels: Record<string, string> = {
+  positive: "积极表达", neutral: "中性表达", mixed: "混合表达",
+  distress: "困扰表达", unclear: "暂不明确",
+};
+const themeLabels: Record<string, string> = {
+  school_pressure: "学业压力", peer_relationship: "同伴关系",
+  family_relationship: "家庭关系", loneliness: "孤独感", anger: "生气",
+  loss: "失落或失去", sleep_or_fatigue: "睡眠或疲惫", other: "其他主题",
+};
+const followUpLabels: Record<string, string> = {
+  routine_check_in: "日常留意", timely_check_in: "建议及时核对",
+};
+const trendLabels: Record<string, string> = {
+  not_enough_data: "信息不足", stable: "大致稳定", easing: "有所缓和",
+  intensifying: "表达增强", unclear: "暂不明确",
+};
+const confidenceLabels: Record<string, string> = {
+  low: "低", medium: "中", high: "高",
+};
+const basisLabels: Record<string, string> = {
+  explicit_support_seeking: "明确表达希望获得支持",
+  repeated_distress_expression: "多次出现困扰表达",
+  change_from_recent_turns: "与近期表达相比有变化",
+  prolonged_session: "对话持续时间较长",
+  unclear_language: "表达含义暂不清楚",
+};
+
+function safeLabel(labels: Record<string, string>, value: string): string {
+  return labels[value] || "未提供";
+}
+
+function safeLabels(labels: Record<string, string>, values: unknown): string[] {
+  const mapped = (Array.isArray(values) ? values : [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => labels[value])
+    .filter((value): value is string => Boolean(value));
+  return mapped.length ? mapped : ["未提供"];
+}
 
 function toNumber(value: unknown, fallback = 0) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -197,6 +277,8 @@ export default function TeacherDashboard() {
   const [students, setStudents] = useState<StudentAccount[]>([]);
   const [summary, setSummary] = useState<TeacherSummary | null>(null);
   const [safetyEvents, setSafetyEvents] = useState<SafetyEvent[]>([]);
+  const [attentionEvents, setAttentionEvents] = useState<AttentionEvent[]>([]);
+  const [conversationCues, setConversationCues] = useState<ConversationCue[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [loadingData, setLoadingData] = useState(false);
   const [error, setError] = useState("");
@@ -230,23 +312,31 @@ export default function TeacherDashboard() {
     setError("");
     try {
       const suffix = classId ? `?classId=${encodeURIComponent(classId)}` : "";
-      const [studentResponse, summaryResponse, safetyResponse] = await Promise.all([
+      const [studentResponse, summaryResponse, safetyResponse, attentionResponse, cueResponse] = await Promise.all([
         fetch(`/api/teacher/students${suffix}`, { cache: "no-store" }),
         fetch(`/api/teacher/summary?days=7${classId ? `&classId=${encodeURIComponent(classId)}` : ""}`, { cache: "no-store" }),
         fetch(`/api/teacher/safety-events${suffix}`, { cache: "no-store" }),
+        fetch(`/api/teacher/attention-events${suffix}`, { cache: "no-store" }),
+        fetch(`/api/teacher/conversation-cues${suffix}`, { cache: "no-store" }),
       ]);
-      if ([studentResponse, summaryResponse, safetyResponse].some(handleUnauthorized)) return;
-      const [studentData, summaryData, safetyData] = await Promise.all([
+      if ([studentResponse, summaryResponse, safetyResponse, attentionResponse, cueResponse].some(handleUnauthorized)) return;
+      const [studentData, summaryData, safetyData, attentionData, cueData] = await Promise.all([
         studentResponse.json() as Promise<{ students?: StudentAccount[]; error?: string }>,
         summaryResponse.json() as Promise<unknown>,
         safetyResponse.json() as Promise<{ events?: SafetyEvent[]; error?: string }>,
+        attentionResponse.json() as Promise<{ events?: AttentionEvent[]; error?: string }>,
+        cueResponse.json() as Promise<{ cues?: ConversationCue[]; error?: string }>,
       ]);
       if (!studentResponse.ok) throw new Error(studentData.error || "暂时无法读取学生账号");
       if (!summaryResponse.ok) throw new Error("暂时无法读取班级汇总");
       if (!safetyResponse.ok) throw new Error(safetyData.error || "暂时无法读取安全事件");
+      if (!attentionResponse.ok) throw new Error(attentionData.error || "暂时无法读取日常关注提示");
+      if (!cueResponse.ok) throw new Error(cueData.error || "暂时无法读取 AI 关心线索");
       setStudents(studentData.students || []);
       setSummary(normalizeSummary(summaryData));
       setSafetyEvents(safetyData.events || []);
+      setAttentionEvents(attentionData.events || []);
+      setConversationCues(cueData.cues || []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "暂时无法读取工作台数据");
     } finally {
@@ -404,10 +494,60 @@ export default function TeacherDashboard() {
     }
   }
 
+  async function updateAttentionEvent(item: AttentionEvent, status: "acknowledged" | "resolved") {
+    setUpdatingId(item.id);
+    setError("");
+    try {
+      const response = await fetch("/api/teacher/attention-events", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: item.id, status }),
+      });
+      const data = (await response.json()) as { event?: AttentionEvent; error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法更新关注提示");
+      if (data.event) {
+        setAttentionEvents((current) => current.map((event) => event.id === item.id ? data.event! : event));
+      }
+      setNotice(status === "acknowledged" ? "已记录教师查看。" : "已记录日常关心与休息提醒已完成。");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "暂时无法更新关注提示");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function updateConversationCue(
+    item: ConversationCue,
+    status: "acknowledged" | "resolved" | "dismissed_inaccurate",
+  ) {
+    setUpdatingId(item.id);
+    setError("");
+    try {
+      const response = await fetch("/api/teacher/conversation-cues", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cueId: item.id, status }),
+      });
+      const data = (await response.json()) as { cue?: ConversationCue; error?: string };
+      if (!response.ok) throw new Error(data.error || "暂时无法更新 AI 关心线索");
+      if (data.cue) {
+        setConversationCues((current) => current.map((cue) => cue.id === item.id ? data.cue! : cue));
+      }
+      setNotice(status === "dismissed_inaccurate" ? "已将这条线索标记为不准确。" : status === "acknowledged" ? "已记录开始人工核对。" : "已记录完成核对。");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "暂时无法更新 AI 关心线索");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   const selectedClass = classes.find((item) => item.id === selectedClassId);
   const activeStudents = students.filter((student) => student.active).length;
   const consentedStudents = students.filter((student) => student.guardianConsentVerified && student.studentConsented).length;
   const unreviewedEvents = safetyEvents.filter((item) => item.status === "new").length;
+  const unreviewedAttentionEvents = attentionEvents.filter((item) => item.status === "new").length;
+  const unreviewedCues = conversationCues.filter((item) => item.status === "new").length;
+  const unreviewedTeacherItems = unreviewedEvents + unreviewedAttentionEvents + unreviewedCues;
   const moodTotal = summary?.moodCounts.reduce((total, item) => total + item.count, 0) || 0;
   const sandboxManagedAccounts = true;
 
@@ -434,7 +574,7 @@ export default function TeacherDashboard() {
           <nav>
             <button type="button" className={activeSection === "overview" ? "is-active" : ""} onClick={() => setActiveSection("overview")}><span aria-hidden="true">◫</span>班级概览</button>
             <button type="button" className={activeSection === "students" ? "is-active" : ""} onClick={() => setActiveSection("students")}><span aria-hidden="true">◎</span>学生账号</button>
-            <button type="button" className={activeSection === "safety" ? "is-active" : ""} onClick={() => setActiveSection("safety")}><span aria-hidden="true">◇</span>支持与核对{unreviewedEvents > 0 && <b>{unreviewedEvents}</b>}</button>
+            <button type="button" className={activeSection === "safety" ? "is-active" : ""} onClick={() => setActiveSection("safety")}><span aria-hidden="true">◇</span>支持与关注{unreviewedTeacherItems > 0 && <b>{unreviewedTeacherItems}</b>}</button>
           </nav>
           <section className="sidebar-boundary">
             <strong>信息边界</strong>
@@ -464,7 +604,7 @@ export default function TeacherDashboard() {
                 <article><span className="metric-icon is-purple" aria-hidden="true">今</span><div><strong>{summary?.todayCount ?? 0}</strong><p>今日完成</p></div><small>仅计已保存心情</small></article>
                 <article><span className="metric-icon is-green" aria-hidden="true">人</span><div><strong>{summary?.participants ?? 0}</strong><p>7 天参与</p></div><small>{summary?.totalEntries ?? 0} 条记录</small></article>
                 <article><span className="metric-icon is-gold" aria-hidden="true">援</span><div><strong>{summary?.supportRequests ?? 0}</strong><p>模拟支持请求</p></div><small>仅测试处置流程</small></article>
-                <article className={unreviewedEvents ? "is-urgent" : ""}><span className="metric-icon is-red" aria-hidden="true">核</span><div><strong>{unreviewedEvents}</strong><p>待教师查看</p></div><small>不等于已通知</small></article>
+                <article className={unreviewedTeacherItems ? "is-urgent" : ""}><span className="metric-icon is-red" aria-hidden="true">看</span><div><strong>{unreviewedTeacherItems}</strong><p>待教师查看</p></div><small>{unreviewedCues} 项 AI 线索待核对</small></article>
               </section>
 
               {!summary || (summary.totalEntries === 0 && classes.length === 0) ? (
@@ -529,9 +669,28 @@ export default function TeacherDashboard() {
 
           {activeSection === "safety" && (
             <section className="safety-section">
-              <div className="safety-boundary"><strong>这是模拟处置，不会联系真人</strong><p>事件仅说明本地规则在合成心情、AI 对话或语音转写中被触发。请扮演 CCCR 核对流程，不要输入现实联系信息。</p></div>
-              <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">最少必要安全事件</p><h2>人工核对队列</h2></div><span>{unreviewedEvents} 项待教师查看</span></div>
-              {safetyEvents.length ? <div className="safety-event-list">{safetyEvents.map((item) => <article key={item.id} className={`safety-event is-${item.status}`}><span className="event-mark" aria-hidden="true">{item.status === "new" ? "!" : "✓"}</span><div className="event-main"><div><strong>{item.studentUsername}</strong><span>{item.className}</span><i>{statusLabels[item.status]}</i></div><dl><div><dt>事件码</dt><dd>本地危机词规则</dd></div><div><dt>来源</dt><dd>{sourceLabels[item.sourceType]}</dd></div><div><dt>触发时间</dt><dd>{formatDate(item.createdAt)}</dd></div></dl><p>不含合成对话原文。请仅模拟核对与处置，不会联系真人。</p></div><div className="event-actions">{item.status === "new" && <button type="button" onClick={() => void updateSafetyEvent(item, "acknowledged")} disabled={updatingId === item.id}>我已看到，开始模拟核对</button>}{item.status === "acknowledged" && <button type="button" onClick={() => void updateSafetyEvent(item, "resolved")} disabled={updatingId === item.id}>记录为已完成模拟处置</button>}{item.status === "resolved" && <span>完成于 {item.resolvedAt ? formatDate(item.resolvedAt) : "已记录"}</span>}</div></article>)}</div> : <div className="teacher-empty-state compact"><h3>当前没有合成事件</h3><p>可从虚构学生视角触发模拟支持请求，然后回到此处测试处置流程。</p></div>}
+              <div className="support-priority-guide" role="note" aria-label="教师查看优先顺序">
+                <strong>查看顺序：① 明确危险表达 · ② 学生主动求助与长时使用 · ③ AI 关心线索</strong>
+                <p>三类提示彼此独立；只有本地明确危险规则进入紧急队列。AI 线索始终需要人工核对，不能单独把学生标为危险、异常或正常。</p>
+              </div>
+
+              <section className="urgent-safety-panel" aria-labelledby="urgent-safety-title">
+                <div className="safety-boundary"><strong>最高优先 · 这是模拟处置，不会联系真人</strong><p>事件只说明本地明确危险表达规则在合成心情、AI 对话或语音转写中被触发，不显示原文，也不经过 Qwen 定级。</p></div>
+                <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">1 · 明确危险表达</p><h2 id="urgent-safety-title">紧急人工核对队列</h2></div><span>{unreviewedEvents} 项待教师查看</span></div>
+                {safetyEvents.length ? <div className="safety-event-list">{safetyEvents.map((item) => <article key={item.id} className={`safety-event is-${item.status}`}><span className="event-mark" aria-hidden="true">{item.status === "new" ? "!" : "✓"}</span><div className="event-main"><div><strong>{item.studentUsername}</strong><span>{item.className}</span><i>{statusLabels[item.status]}</i></div><dl><div><dt>事件码</dt><dd>本地明确危险表达规则</dd></div><div><dt>来源</dt><dd>{sourceLabels[item.sourceType]}</dd></div><div><dt>触发时间</dt><dd>{formatDate(item.createdAt)}</dd></div></dl><p>不含合成对话原文。请仅模拟核对与处置，不会联系真人。</p></div><div className="event-actions">{item.status === "new" && <button type="button" onClick={() => void updateSafetyEvent(item, "acknowledged")} disabled={updatingId === item.id}>我已看到，开始模拟核对</button>}{item.status === "acknowledged" && <button type="button" onClick={() => void updateSafetyEvent(item, "resolved")} disabled={updatingId === item.id}>记录为已完成模拟处置</button>}{item.status === "resolved" && <span>完成于 {item.resolvedAt ? formatDate(item.resolvedAt) : "已记录"}</span>}</div></article>)}</div> : <div className="teacher-empty-state compact"><h3>当前没有明确危险表达事件</h3><p>这里只表示目前没有被本地明确规则触发的合成事件，不能据此判断学生状态正常。</p></div>}
+              </section>
+
+              <section className="attention-panel" aria-labelledby="attention-title">
+                <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">2 · 日常关心 · 非危机</p><h2 id="attention-title">学生主动支持与休息提示</h2></div><span>{unreviewedAttentionEvents} 项待教师查看</span></div>
+                <p className="attention-boundary">学生主动请求支持会优先显示；同一对话持续超过 3 小时则建议日常关心与休息提醒。两类都不代表异常或危机，只显示虚构账号、班级和提示时间，不显示心情或对话原文。</p>
+                {attentionEvents.length ? <div className="attention-event-list">{attentionEvents.map((item) => { const supportRequest = item.kind === "student_support_request"; return <article key={item.id} className={`attention-event is-${item.status} ${supportRequest ? "is-support-request" : "is-long-chat"}`}><span className="attention-mark" aria-hidden="true">{supportRequest ? "援" : "休"}</span><div className="event-main"><div><strong>{item.studentUsername}</strong><span>{item.className}</span><i>{statusLabels[item.status]}</i></div><dl><div><dt>提示类型</dt><dd>{supportRequest ? "学生主动请求支持" : "同一对话持续超过 3 小时"}</dd></div><div><dt>提示时间</dt><dd>{formatDate(item.createdAt)}</dd></div></dl><p>{supportRequest ? "学生主动表示希望获得支持；请以日常、非评判方式关心，不作异常判断或心理诊断。" : "建议以日常、非评判方式关心使用时长并提醒休息；不作异常判断或心理诊断。"}</p></div><div className="event-actions">{item.status === "new" && <button type="button" onClick={() => void updateAttentionEvent(item, "acknowledged")} disabled={updatingId === item.id}>我已看到</button>}{item.status === "acknowledged" && <button type="button" onClick={() => void updateAttentionEvent(item, "resolved")} disabled={updatingId === item.id}>{supportRequest ? "已完成日常关心" : "已完成日常关心与休息提醒"}</button>}{item.status === "resolved" && <span>完成于 {item.resolvedAt ? formatDate(item.resolvedAt) : "已记录"}</span>}</div></article>; })}</div> : <div className="teacher-empty-state compact"><h3>当前没有日常关注提示</h3><p>学生主动请求支持，或同一对话持续超过 3 小时后，会在这里生成一次提示。</p></div>}
+              </section>
+
+              <section className="conversation-cue-panel" aria-labelledby="conversation-cue-title">
+                <div className="teacher-panel-heading"><div><p className="teacher-eyebrow">3 · AI 关心线索 · 非危机</p><h2 id="conversation-cue-title">待人工核对</h2></div><span>{unreviewedCues} 项待教师核对</span></div>
+                <p className="conversation-cue-boundary">线索由 AI 从普通对话中生成，不含对话原文，不是诊断或异常判定，也可能不准确。请结合日常接触人工核对；这里没有线索时，不能据此写成“学生正常”。</p>
+                {conversationCues.length ? <div className="conversation-cue-list">{conversationCues.map((cue) => <article key={cue.id} className={`conversation-cue is-${cue.status}`}><div className="cue-card-heading"><span aria-hidden="true">AI</span><div><strong>{cue.studentUsername}</strong><small>{cue.className}</small></div><i>{cueStatusLabels[cue.status]}</i></div><dl><div><dt>表达类别</dt><dd>{safeLabel(expressionLabels, cue.observedExpression)}</dd></div><div><dt>主题</dt><dd>{safeLabels(themeLabels, cue.themes).join("、")}</dd></div><div><dt>建议核对时效</dt><dd>{safeLabel(followUpLabels, cue.followUp)}</dd></div><div><dt>变化趋势</dt><dd>{safeLabel(trendLabels, cue.trend)}</dd></div><div><dt>AI 置信度</dt><dd>{safeLabel(confidenceLabels, cue.confidence)}</dd></div><div><dt>结构化依据</dt><dd>{safeLabels(basisLabels, cue.basis).join("、")}</dd></div><div><dt>生成时间</dt><dd>{formatDate(cue.createdAt)}</dd></div></dl><p>只显示受限类别，不显示学生的聊天原文。置信度不是准确率，也不能替代教师判断。</p><div className="cue-actions">{cue.status === "new" && <button type="button" onClick={() => void updateConversationCue(cue, "acknowledged")} disabled={updatingId === cue.id}>开始人工核对</button>}{cue.status === "acknowledged" && <button type="button" onClick={() => void updateConversationCue(cue, "resolved")} disabled={updatingId === cue.id}>完成核对</button>}{(cue.status === "new" || cue.status === "acknowledged") && <button className="is-secondary" type="button" onClick={() => void updateConversationCue(cue, "dismissed_inaccurate")} disabled={updatingId === cue.id}>标记为不准确</button>}{cue.status === "resolved" && <span>已完成核对</span>}{cue.status === "dismissed_inaccurate" && <span>不会作为有效线索使用</span>}</div></article>)}</div> : <div className="teacher-empty-state compact"><h3>当前没有 AI 关心线索</h3><p>这只表示目前没有待显示的结构化线索，不能据此判断学生状态正常。</p></div>}
+              </section>
 
               <section className="cccr-card" aria-labelledby="cccr-title"><div><p className="teacher-eyebrow">Cue → Check → Choose → Reflect</p><h2 id="cccr-title">模拟教师处置流程</h2></div><ol><li><b>1</b><strong>Cue · 看合成线索</strong><p>只读事件码、来源、时间与虚构账号。</p></li><li><b>2</b><strong>Check · 选核对步骤</strong><p>扮演如何确认合成角色状态，不会联系真人。</p></li><li><b>3</b><strong>Choose · 选模拟支持</strong><p>从预设处置中选择合理下一步，不输入真实联系信息。</p></li><li><b>4</b><strong>Reflect · 留痕复盘</strong><p>只记录模拟处置状态，不复制对话原文。</p></li></ol></section>
             </section>

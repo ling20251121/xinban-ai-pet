@@ -1,12 +1,13 @@
-import type { SessionUser } from "@/lib/auth";
+import { consumeAuthRateLimit, type SessionUser } from "@/lib/auth";
 import { ApiError } from "@/lib/http";
 import { getSystemDatabase } from "@/lib/system-db";
 import { getRuntimeEnv } from "@/db";
 import { isSyntheticSchoolSandbox } from "@/lib/public-demo";
 
-const SESSION_MILLISECONDS = 15 * 60_000;
-const MAX_STUDENT_TURNS = 12;
+/** Human-paced guardrail: enough for normal conversation, blocks scripted flooding. */
+const CHAT_REQUESTS_PER_MINUTE = 30;
 const STALE_PENDING_MILLISECONDS = 30_000;
+const LONG_CHAT_ATTENTION_MILLISECONDS = 3 * 60 * 60 * 1_000;
 
 interface ConversationRow {
   id: string;
@@ -17,7 +18,13 @@ interface ConversationRow {
   student_turns: number;
   in_flight: number;
   lease_token: string | null;
-  ended_reason: "expired" | "turn_limit" | "urgent" | "student_deleted" | null;
+  ended_reason:
+    | "expired"
+    | "turn_limit"
+    | "urgent"
+    | "student_deleted"
+    | "student_finished"
+    | null;
   ended_at: string | null;
   created_at: string;
   updated_at: string;
@@ -63,14 +70,6 @@ function validConversationId(value: unknown): string | null {
   return value;
 }
 
-async function closeExpiredOpenConversation(userId: string, now: string): Promise<void> {
-  const database = await getSystemDatabase();
-  await database.prepare(`UPDATE chat_conversations SET ended_reason='expired',
-    ended_at=?,updated_at=?,in_flight=0,pending_since=NULL,lease_token=NULL
-    WHERE user_id=? AND ended_at IS NULL AND expires_at<=? AND (?=0 OR synthetic=1)`)
-    .bind(now, now, userId, now, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).run();
-}
-
 export async function getOrCreateConversation(
   user: SessionUser,
   requestedId: unknown,
@@ -79,7 +78,6 @@ export async function getOrCreateConversation(
   const database = await getSystemDatabase();
   const nowDate = new Date();
   const now = nowDate.toISOString();
-  await closeExpiredOpenConversation(user.id, now);
   const requested = validConversationId(requestedId);
   let row: ConversationRow | null = null;
   if (requested) {
@@ -95,14 +93,17 @@ export async function getOrCreateConversation(
       .bind(user.id, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0).first<ConversationRow>();
   }
   if (row) {
-    if (row.ended_at || row.expires_at <= now || Number(row.student_turns) >= MAX_STUDENT_TURNS) {
+    if (row.ended_at) {
       throw new ApiError(409, "这段对话已经结束，请开始一段新对话。");
     }
     return row;
   }
 
   const id = crypto.randomUUID();
-  const expiresAt = new Date(nowDate.getTime() + SESSION_MILLISECONDS).toISOString();
+  // Keep the legacy non-null column for existing databases and exports. It is
+  // no longer enforced as a chat cutoff; started_at is the source of elapsed
+  // time shown to the student and used for the non-diagnostic long-use cue.
+  const expiresAt = now;
   try {
     await database.prepare(`INSERT INTO chat_conversations (
       id,user_id,class_id,started_at,expires_at,student_turns,in_flight,pending_since,lease_token,
@@ -125,11 +126,21 @@ export async function getOrCreateConversation(
   return created;
 }
 
-/** Atomically reserves one provider call. Failed calls still consume the slot. */
+/** Atomically reserves one provider call; failed turns release the visible turn count. */
 export async function reserveTurn(
   user: SessionUser,
   conversation: ConversationRow,
+  request: Request,
 ): Promise<{ studentTurns: number; leaseToken: string }> {
+  // This short rolling window is keyed by both account and client address. It
+  // blocks scripted flooding without creating a daily turn or duration cap.
+  await consumeAuthRateLimit(
+    request,
+    "student-chat-minute",
+    user.id,
+    CHAT_REQUESTS_PER_MINUTE,
+    60,
+  );
   const database = await getSystemDatabase();
   const nowDate = new Date();
   const now = nowDate.toISOString();
@@ -137,8 +148,8 @@ export async function reserveTurn(
   const leaseToken = crypto.randomUUID();
   const result = await database.prepare(`UPDATE chat_conversations SET
     student_turns=student_turns+1,in_flight=1,pending_since=?,lease_token=?,updated_at=?
-    WHERE id=? AND user_id=? AND class_id=? AND ended_at IS NULL AND expires_at>?
-      AND student_turns<? AND (in_flight=0 OR pending_since<?)
+    WHERE id=? AND user_id=? AND class_id=? AND ended_at IS NULL
+      AND (in_flight=0 OR pending_since<?)
       AND (?=0 OR synthetic=1)`)
     .bind(
       now,
@@ -147,43 +158,16 @@ export async function reserveTurn(
       conversation.id,
       user.id,
       user.classId,
-      now,
-      MAX_STUDENT_TURNS,
       staleBefore,
       isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0,
     ).run();
   if (Number(result.meta.changes ?? 0) !== 1) {
-    throw new ApiError(409, "对话正在回复或已经达到时长/轮次限制。");
+    throw new ApiError(409, "上一条内容还在处理中，请稍后再试。");
   }
   const row = await database.prepare("SELECT student_turns FROM chat_conversations WHERE id=? AND (?=0 OR synthetic=1)")
     .bind(conversation.id, isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0)
     .first<{ student_turns: number }>();
-  return { studentTurns: Number(row?.student_turns ?? MAX_STUDENT_TURNS), leaseToken };
-}
-
-export async function saveUserMessage(
-  user: SessionUser,
-  conversationId: string,
-  leaseToken: string,
-  content: string,
-  urgent: boolean,
-): Promise<void> {
-  const database = await getSystemDatabase();
-  const result = await database.prepare(`INSERT INTO chat_messages
-    (id,conversation_id,user_id,role,content,safety_level,synthetic,created_at)
-    SELECT ?,?,?,'user',?,?,?,? WHERE EXISTS (
-      SELECT 1 FROM chat_conversations
-      WHERE id=? AND user_id=? AND in_flight=1 AND lease_token=? AND (?=0 OR synthetic=1)
-    )`)
-    .bind(
-      crypto.randomUUID(), conversationId, user.id, content,
-      urgent ? "urgent" : "normal", user.synthetic ? 1 : 0,
-      new Date().toISOString(),
-      conversationId, user.id, leaseToken, user.synthetic ? 1 : 0,
-    ).run();
-  if (Number(result.meta.changes ?? 0) !== 1) {
-    throw new ApiError(409, "This conversation request is no longer active.");
-  }
+  return { studentTurns: Number(row?.student_turns ?? 0), leaseToken };
 }
 
 export async function saveUrgentConversation(
@@ -250,15 +234,27 @@ export async function saveAssistantAndFinish(
   user: SessionUser,
   conversationId: string,
   leaseToken: string,
+  studentContent: string,
   content: string,
   urgent: boolean,
 ): Promise<ConversationRow> {
   const database = await getSystemDatabase();
-  const now = new Date().toISOString();
-  const row = await database.prepare("SELECT student_turns FROM chat_conversations WHERE id=? AND (?=0 OR synthetic=1)")
-    .bind(conversationId, user.synthetic ? 1 : 0).first<{ student_turns: number }>();
-  const turnLimit = Number(row?.student_turns ?? 0) >= MAX_STUDENT_TURNS;
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+  const longChatBefore = new Date(
+    nowDate.getTime() - LONG_CHAT_ATTENTION_MILLISECONDS,
+  ).toISOString();
   const results = await database.batch([
+    database.prepare(`INSERT INTO chat_messages
+      (id,conversation_id,user_id,role,content,safety_level,synthetic,created_at)
+      SELECT ?,?,?,'user',?,'normal',?,? WHERE EXISTS (
+        SELECT 1 FROM chat_conversations WHERE id=? AND user_id=?
+          AND in_flight=1 AND lease_token=? AND (?=0 OR synthetic=1)
+      )`).bind(
+        crypto.randomUUID(), conversationId, user.id, studentContent,
+        user.synthetic ? 1 : 0, now,
+        conversationId, user.id, leaseToken, user.synthetic ? 1 : 0,
+      ),
     database.prepare(`INSERT INTO chat_messages
       (id,conversation_id,user_id,role,content,safety_level,synthetic,created_at)
       SELECT ?,?,?,?,?,?,?,? WHERE EXISTS (
@@ -270,25 +266,65 @@ export async function saveAssistantAndFinish(
         urgent ? "urgent" : "normal", user.synthetic ? 1 : 0, now,
         conversationId, user.id, leaseToken, user.synthetic ? 1 : 0,
       ),
+    database.prepare(`INSERT INTO teacher_attention_events (
+      id,user_id,class_id,kind,source_type,source_id,status,
+      assigned_teacher_user_id,acknowledged_at,resolved_at,synthetic,created_at
+    ) SELECT ?,?,?,'long_chat_session','chat',?,'new',NULL,NULL,NULL,?,?
+      WHERE ?=0 AND EXISTS (
+        SELECT 1 FROM chat_conversations WHERE id=? AND user_id=? AND class_id=?
+          AND in_flight=1 AND lease_token=? AND started_at<=?
+          AND (?=0 OR synthetic=1)
+      ) ON CONFLICT (kind,source_id) DO NOTHING`).bind(
+        crypto.randomUUID(), user.id, user.classId, conversationId,
+        user.synthetic ? 1 : 0, now,
+        urgent ? 1 : 0,
+        conversationId, user.id, user.classId, leaseToken, longChatBefore,
+        user.synthetic ? 1 : 0,
+      ),
     database.prepare(`UPDATE chat_conversations SET
       in_flight=0,pending_since=NULL,lease_token=NULL,
-      ended_reason=CASE WHEN ?=1 THEN 'urgent' WHEN ?=1 THEN 'turn_limit' ELSE ended_reason END,
-      ended_at=CASE WHEN ?=1 OR ?=1 THEN ? ELSE ended_at END,
+      ended_reason=CASE WHEN ?=1 THEN 'urgent' ELSE ended_reason END,
+      ended_at=CASE WHEN ?=1 THEN ? ELSE ended_at END,
       updated_at=? WHERE id=? AND user_id=? AND in_flight=1 AND lease_token=?
         AND (?=0 OR synthetic=1)`).bind(
-        urgent ? 1 : 0, turnLimit ? 1 : 0,
-        urgent ? 1 : 0, turnLimit ? 1 : 0, now, now, conversationId, user.id,
+        urgent ? 1 : 0,
+        urgent ? 1 : 0, now, now, conversationId, user.id,
         leaseToken, user.synthetic ? 1 : 0,
       ),
   ]);
   if (
     Number(results[0].meta.changes ?? 0) !== 1 ||
-    Number(results[1].meta.changes ?? 0) !== 1
+    Number(results[1].meta.changes ?? 0) !== 1 ||
+    Number(results[3].meta.changes ?? 0) !== 1
   ) {
     throw new ApiError(409, "This conversation request is no longer active.");
   }
   const updated = await database.prepare("SELECT * FROM chat_conversations WHERE id=? AND (?=0 OR synthetic=1)")
     .bind(conversationId, user.synthetic ? 1 : 0).first<ConversationRow>();
+  if (!updated) throw new ApiError(500, "对话状态更新失败。");
+  return updated;
+}
+
+export async function finishConversation(
+  user: SessionUser,
+  conversationIdValue: unknown,
+): Promise<ConversationRow> {
+  const conversationId = validConversationId(conversationIdValue);
+  if (!conversationId) throw new ApiError(400, "请提供对话编号。");
+  const database = await getSystemDatabase();
+  const now = new Date().toISOString();
+  const result = await database.prepare(`UPDATE chat_conversations SET
+    ended_reason='student_finished',ended_at=?,updated_at=?,in_flight=0,
+    pending_since=NULL,lease_token=NULL WHERE id=? AND user_id=? AND ended_at IS NULL
+      AND (?=0 OR synthetic=1)`).bind(
+        now, now, conversationId, user.id, user.synthetic ? 1 : 0,
+      ).run();
+  if (Number(result.meta.changes ?? 0) !== 1) {
+    throw new ApiError(404, "没有找到正在进行的这段对话。");
+  }
+  const updated = await database.prepare(
+    "SELECT * FROM chat_conversations WHERE id=? AND user_id=? AND (?=0 OR synthetic=1)",
+  ).bind(conversationId, user.id, user.synthetic ? 1 : 0).first<ConversationRow>();
   if (!updated) throw new ApiError(500, "对话状态更新失败。");
   return updated;
 }
@@ -299,8 +335,10 @@ export async function releaseFailedTurn(
   leaseToken: string,
 ): Promise<void> {
   const database = await getSystemDatabase();
-  await database.prepare(`UPDATE chat_conversations SET in_flight=0,pending_since=NULL,
-    lease_token=NULL,updated_at=? WHERE id=? AND user_id=? AND lease_token=?
+  await database.prepare(`UPDATE chat_conversations SET
+    student_turns=CASE WHEN student_turns>0 THEN student_turns-1 ELSE 0 END,
+    in_flight=0,pending_since=NULL,lease_token=NULL,updated_at=?
+    WHERE id=? AND user_id=? AND lease_token=?
       AND (?=0 OR synthetic=1)`).bind(
       new Date().toISOString(), conversationId, userId, leaseToken,
       isSyntheticSchoolSandbox(getRuntimeEnv()) ? 1 : 0,

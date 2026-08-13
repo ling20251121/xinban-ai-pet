@@ -145,6 +145,15 @@ test("sandbox is explicit, initializes only synthetic rows, gates adult login, r
   assert.equal(providerCalls, 0);
   assert.equal(Number((await db.prepare("SELECT COUNT(*) count FROM chat_messages").first()).count), 0);
 
+  const spokenDigitsChat = await callApi(
+    "/api/chat",
+    mutation({ mood: "紧张", message: "我的号码是一三八零零一三八零零零" }, cookie),
+    bindings,
+  );
+  assert.equal(spokenDigitsChat.status, 400, await spokenDigitsChat.clone().text());
+  assert.equal(providerCalls, 0);
+  assert.equal(Number((await db.prepare("SELECT COUNT(*) count FROM chat_messages").first()).count), 0);
+
   const piiTts = await callApi(
     "/api/voice/synthesize",
     mutation({ text: "我的邮箱是 demo@example.com", userInitiated: true }, cookie),
@@ -158,7 +167,11 @@ test("sandbox is explicit, initializes only synthetic rows, gates adult login, r
     headers: { origin: ORIGIN, "x-sandbox-admin-key": ADMIN_KEY },
   }, bindings);
   assert.equal(reset.status, 200, await reset.clone().text());
-  for (const table of ["sandbox_state", "auth_sessions", "school_classes", "app_users", "mood_entries", "support_events"]) {
+  for (const table of [
+    "sandbox_state", "auth_sessions", "school_classes", "app_users", "mood_entries",
+    "chat_conversations", "chat_messages", "support_events", "teacher_attention_events",
+    "conversation_cues",
+  ]) {
     assert.equal(Number((await db.prepare(`SELECT COUNT(*) count FROM ${table}`).first()).count), 0, table);
   }
 });
@@ -184,7 +197,10 @@ test("sandbox initialization transaction rolls back its claim and every row on f
     bindings,
   );
   assert.equal(failed.status, 500, await failed.clone().text());
-  for (const table of ["sandbox_state", "school_classes", "app_users", "mood_entries", "support_events"]) {
+  for (const table of [
+    "sandbox_state", "school_classes", "app_users", "mood_entries", "support_events",
+    "teacher_attention_events", "conversation_cues",
+  ]) {
     assert.equal(Number((await db.prepare(`SELECT COUNT(*) count FROM ${table}`).first()).count), 0, table);
   }
 
