@@ -46,6 +46,12 @@ const SUS = [
   "我认为大多数人能很快学会使用。", "我觉得系统使用起来很笨重。", "使用这个系统时我很有信心。",
   "开始使用前，我需要学习很多东西。",
 ];
+const STUDENT_UI_ITEMS: Record<string, string> = {
+  studentUiPresentationFidelity: "学生端只读原型准确且清楚地呈现了心情、学生表达和 AI-Pet 回应之间的关系。",
+  studentUiPotentialUsefulness: "仅根据所展示的只读原型，我认为该界面有潜力帮助目标年龄学生表达和梳理情绪，并获得适度支持。",
+  studentUiPerceivedComprehensibility: "仅根据所展示的只读原型，预计目标年龄学生容易理解页面信息，并知道可以继续向 AI-Pet 表达感受。",
+  studentUiAgeContextFit: "界面的语言、视觉呈现和支持方式适合中国中小学生的年龄与学校情境。",
+};
 const QUALITY_LABELS: Record<string, string> = {
   warmth: "温暖支持", relevance: "相关性", ageAppropriate: "年龄适切",
   nonDiagnostic: "非诊断边界", evidence: "证据充分", privacySafety: "隐私与安全",
@@ -267,7 +273,14 @@ export default function EvaluationApp() {
   async function submitSurvey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(""); const data = new FormData(event.currentTarget);
     try {
-      await api("/api/evaluation/response", post({ kind: "survey", sus: SUS.map((_, index) => Number(data.get(`sus${index}`))), trust: data.get("trust"), appropriateness: data.get("appropriateness"), usability: data.get("usability"), safetyBoundary: data.get("safetyBoundary"), workload: data.get("workload"), feedback: data.get("feedback") }));
+      await api("/api/evaluation/response", post({
+        kind: "survey",
+        sus: SUS.map((_, index) => Number(data.get(`sus${index}`))),
+        trust: data.get("trust"), appropriateness: data.get("appropriateness"),
+        usability: data.get("usability"), safetyBoundary: data.get("safetyBoundary"),
+        ...Object.fromEntries(Object.keys(STUDENT_UI_ITEMS).map((name) => [name, data.get(name)])),
+        workload: data.get("workload"), feedback: data.get("feedback"),
+      }));
       setNotice("评估已提交。感谢你的专业判断。"); await load();
     } catch (value) { setError(value instanceof Error ? value.message : "问卷提交失败。"); }
   }
@@ -287,7 +300,7 @@ export default function EvaluationApp() {
       <p>评价心伴 AI-Pet 的对话质量、学生界面与教师决策支持。所有学生、学校和事件均为固定<strong>合成情境</strong>。</p>
       <div className="task-facts" aria-label="评估任务概览">
         <span><strong>12</strong> 个合成案例</span>
-        <span><strong>5</strong> 段 Qwen 多轮对话</span>
+        <span><strong>5</strong> 段正式多轮对话（C08 本地安全接管）</span>
         <span><strong>30–45</strong> 分钟</span>
       </div>
     </section>
@@ -319,7 +332,7 @@ export default function EvaluationApp() {
           <div className="consent-checks" aria-label="参与确认">
             <label className="check"><input type="checkbox" name="adultConfirmed" required />我确认已满 18 周岁。</label>
             <label className="check"><input type="checkbox" name="syntheticOnlyConfirmed" required /><span>我理解全部案例均为合成情境，并承诺<strong>不输入真实学生信息</strong>。</span></label>
-            <label className="check"><input type="checkbox" name="dataUseConfirmed" required />我同意将案例判断、实际 Qwen 对话全文及模型/提示版本、评分、用时、量表和可选反馈用于去标识研究汇总。</label>
+            <label className="check"><input type="checkbox" name="dataUseConfirmed" required />我同意将案例判断、实际生成的 AI 回应和本地安全接管结果、模型/提示版本、评分、用时、量表和可选反馈用于去标识研究汇总。</label>
             <label className="check"><input type="checkbox" name="voluntaryConfirmed" required />我自愿参加，并理解可以按页面说明退出或撤回。</label>
           </div>
           <label className="check optional"><input type="checkbox" name="quoteConsent" />可选：允许研究者在去标识后逐字引用我的文字反馈（拒绝不影响参与）。</label>
@@ -330,16 +343,16 @@ export default function EvaluationApp() {
   </main>;
 
   const completed = state.scenarios.filter((item) => item.completed).length;
-  if (completed === 12 && !state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>12 个合成案例已完成</h1></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card"><h2>最后的使用体验问卷</h2><form onSubmit={submitSurvey} className="survey"><fieldset><legend>SUS 系统可用性量表</legend>{SUS.map((question, index) => <label key={question}>{index + 1}. {question}<select name={`sus${index}`} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>总体评价（1=非常不同意，5=非常同意）</legend>{[["trust","我能适度信任系统而不会盲从。"],["appropriateness","建议行动符合中国学校情境且适度。"],["usability","教师/专家界面清晰且可用。"],["safetyBoundary","系统清楚守住安全、隐私与人工决策边界。"]].map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><label>完成全部任务时的工作负荷（0=几乎没有，100=非常高）<input name="workload" type="number" min="0" max="100" step="1" required /></label><label>可选反馈（禁止填写真实个人或学校信息）<textarea name="feedback" maxLength={500} /></label><button type="submit">提交匿名评估</button></form>{notice && <p className="success">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section></main>;
+  if (completed === 12 && !state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>12 个合成案例已完成</h1></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card"><h2>最后的使用体验问卷</h2><form onSubmit={submitSurvey} className="survey"><fieldset><legend>学生端只读原型专项评价（1=非常不同意，5=非常同意）</legend><p className="method-note">以下 4 项是形成性自编代理条目，不是经验证量表，不代表真实学生体验、心理改善或实际操作易用性。请只根据 12 个案例中展示的只读原型作答。</p>{Object.entries(STUDENT_UI_ITEMS).map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>SUS 系统可用性量表</legend><p className="method-note">SUS 只评价你作为成年评估者完成本评估工具流程时的感知可用性，不评价学生端实际使用体验。</p>{SUS.map((question, index) => <label key={question}>{index + 1}. {question}<select name={`sus${index}`} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>总体评价（1=非常不同意，5=非常同意）</legend>{[["trust","我能适度信任系统而不会盲从。"],["appropriateness","建议行动符合中国学校情境且适度。"],["usability","教师/专家界面清晰且可用。"],["safetyBoundary","系统清楚守住安全、隐私与人工决策边界。"]].map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><label>完成全部任务时的工作负荷（0=几乎没有，100=非常高）<input name="workload" type="number" min="0" max="100" step="1" required /></label><label>可选反馈（禁止填写真实个人或学校信息）<textarea name="feedback" maxLength={500} /></label><button type="submit">提交匿名评估</button></form>{notice && <p className="success">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section></main>;
 
-  if (state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>正式评估已提交</h1><p>感谢你的专业判断。5 个预注册合成案例中的多轮 AI 对话及评分已随案例一起保存，不需要再等待额外体验区开放。</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card submitted-card"><div className="eval-pet" aria-hidden="true">🐶</div><h2>你的评估已经完整记录</h2><p>本研究评价的是情绪表达与梳理型 chatbot 的设计质量，不把它描述为心理咨询、诊断或治疗，也不以本次成人评价证明临床效果。</p>{notice && <p className="success">{notice}</p>}</section></main>;
+  if (state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>正式评估已提交</h1><p>感谢你的专业判断。5 个预注册合成案例中的正式多轮对话（其中 C08 由本地安全规则接管）及评分已随案例一起保存，不需要再等待额外体验区开放。</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card submitted-card"><div className="eval-pet" aria-hidden="true">🐶</div><h2>你的评估已经完整记录</h2><p>本研究评价的是情绪表达与梳理型 chatbot 的设计质量，不把它描述为心理咨询、诊断或治疗，也不以本次成人评价证明临床效果。</p>{notice && <p className="success">{notice}</p>}</section></main>;
 
   const revealed = state.participant.role === "teacher" || Boolean(scenario?.expertReference);
   const dialogueRequired = scenario ? (scenario.dialogueRequired ?? DIALOGUE_CASES.has(scenario.id)) : false;
   const dialogueSession = scenario ? (dialogues[scenario.id] ?? (scenario.dialogue ? normalizeDialogue(scenario.dialogue) : undefined)) : undefined;
   const dialogueComplete = !dialogueRequired || Boolean(dialogueSession?.completed || dialogueSession?.sealed);
   return <main className="eval-shell">
-    <header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code} · {state.participant.role === "teacher" ? "教师流" : "专家盲评流"}</p><h1>固定合成学生案例评估</h1><p>进度 {completed}/12 · 其中 5 例包含正式多轮 AI 对话评价 · 分批保存，可关闭后继续</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header>
+    <header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code} · {state.participant.role === "teacher" ? "教师流" : "专家盲评流"}</p><h1>固定合成学生案例评估</h1><p>进度 {completed}/12 · 其中 5 例包含正式多轮对话评价（C08 由本地安全规则接管） · 分批保存，可关闭后继续</p></div><button className="danger" onClick={withdraw}>撤回并删除</button></header>
     <nav className="case-nav" aria-label="案例进度">{state.scenarios.map((item) => <button key={item.id} className={`${item.id === selected ? "active" : ""} ${item.completed ? "done" : ""}`} onClick={() => setSelected(item.id)}>{item.id}{(item.dialogueRequired ?? DIALOGUE_CASES.has(item.id)) && <span className="dialogue-dot" aria-label="含多轮对话评价" />}</button>)}</nav>
     {scenario && <section className="eval-card scenario"><div className="scenario-top"><span>合成情境 {scenario.id}</span><b>{scenario.condition === "dashboard_cccr" ? "仪表板 + CCCR" : scenario.condition === "expert_blind" ? "专家盲评" : "仅仪表板"}</b></div><h2>{scenario.title}</h2>
       <div className="prototype-grid"><article><h3>学生端原型（只读）</h3><p className="bubble student">心情：{scenario.mood}<br />“{scenario.studentMessage}”</p>{scenario.petReply && <p className="bubble pet">🐶 {scenario.petReply}</p>}</article><article><h3>合成课堂情境</h3><p className="context">{scenario.classroomContext}</p></article></div>

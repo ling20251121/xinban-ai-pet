@@ -12,7 +12,7 @@
     "build:postgres": "node scripts/build-postgres.mjs",
     "start": "vinext start",
     "start:postgres": "node scripts/start-postgres.mjs",
-    "test": "pnpm run build && node --test --test-concurrency=1 tests/rendered-html.test.mjs tests/v5-controlled-system.test.mjs tests/v5-postgres-adapter.test.mjs tests/v5-evaluation.test.mjs tests/v5-synthetic-sandbox.test.mjs tests/attention-events.test.mjs tests/conversation-cues.test.mjs",
+    "test": "pnpm run build && node --test --test-concurrency=1 tests/rendered-html.test.mjs tests/v5-controlled-system.test.mjs tests/v5-postgres-adapter.test.mjs tests/v5-evaluation.test.mjs tests/v5-synthetic-sandbox.test.mjs tests/attention-events.test.mjs tests/conversation-cues.test.mjs tests/student-ui-migrations.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "db:postgres:migrate": "node scripts/migrate-postgres.mjs",

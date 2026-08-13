@@ -7,11 +7,16 @@ type Group = {
   avg_time_ms: number | null; avg_trust: number | null;
   avg_appropriateness: number | null; avg_usability: number | null;
   avg_safety: number | null; avg_sus: number | null; avg_workload: number | null;
+  student_ui_n: number | null; student_ui_suppressed: boolean;
+  avg_student_ui_presentation_fidelity: number | null;
+  avg_student_ui_potential_usefulness: number | null;
+  avg_student_ui_perceived_comprehensibility: number | null;
+  avg_student_ui_age_context_fit: number | null;
 };
 type Summary = {
   participantCount: number; completedCount: number; minimumGroupSize: number;
   groups: Group[]; suppressedGroups: Array<"teacher" | "expert">;
-  versions: { scenarioPack: string; output: string; prompt: string };
+  versions: { scenarioPack: string; output: string; prompt: string; studentUiItems: string };
 };
 
 export default function ResearchDashboard() {
@@ -105,13 +110,19 @@ export default function ResearchDashboard() {
                 <div><dt>安全边界</dt><dd>{score(group.avg_safety)}</dd></div>
                 <div><dt>SUS 可用性</dt><dd>{metric(group.avg_sus, " / 100")}</dd></div>
                 <div><dt>工作负荷</dt><dd>{metric(group.avg_workload, " / 100")}</dd></div>
+                <div><dt>学生端专项有效评价</dt><dd>{group.student_ui_n ?? "少于 5，已隐藏"}</dd></div>
+                <div><dt>学生端呈现忠实度</dt><dd>{score(group.avg_student_ui_presentation_fidelity)}</dd></div>
+                <div><dt>学生端潜在有用性</dt><dd>{score(group.avg_student_ui_potential_usefulness)}</dd></div>
+                <div><dt>学生端感知可理解性</dt><dd>{score(group.avg_student_ui_perceived_comprehensibility)}</dd></div>
+                <div><dt>学生端年龄/情境适配</dt><dd>{score(group.avg_student_ui_age_context_fit)}</dd></div>
               </dl>
+              {group.student_ui_suppressed && <p className="privacy-note">学生端专项评价少于 5 份，已单独抑制。</p>}
             </article>)}</div>}
           {summary.suppressedGroups.length > 0 && <p className="privacy-note">
             已隐藏小样本分组：{summary.suppressedGroups.map((role) => role === "teacher" ? "教师" : "专家").join("、")}。
           </p>}
         </section>
-        <footer className="version-note">案例包：{summary.versions.scenarioPack} · 冻结输出：{summary.versions.output} · 提示版本：{summary.versions.prompt}</footer>
+        <footer className="version-note">案例包：{summary.versions.scenarioPack} · 冻结输出：{summary.versions.output} · 提示版本：{summary.versions.prompt} · 学生端自编代理条目：{summary.versions.studentUiItems}</footer>
       </>}
     </main>
   );

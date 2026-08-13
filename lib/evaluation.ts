@@ -29,6 +29,7 @@ import { getSystemDatabase } from "@/lib/system-db";
 import type { SystemDatabase } from "@/lib/database-types";
 
 export const EVALUATION_CONSENT_VERSION = "adult-evaluation-dialogue-2026-08-v2";
+export const STUDENT_UI_ITEMS_VERSION = "student-ui-formative-4-v1";
 const COOKIE = "xinban_evaluation";
 const SESSION_SECONDS = 7 * 24 * 60 * 60;
 const encoder = new TextEncoder();
@@ -106,6 +107,11 @@ const TABLES = [
     appropriateness_score INTEGER NOT NULL CHECK (appropriateness_score BETWEEN 1 AND 5),
     usability_score INTEGER NOT NULL CHECK (usability_score BETWEEN 1 AND 5),
     safety_boundary_score INTEGER NOT NULL CHECK (safety_boundary_score BETWEEN 1 AND 5),
+    student_ui_presentation_fidelity_score INTEGER CHECK (student_ui_presentation_fidelity_score IS NULL OR student_ui_presentation_fidelity_score BETWEEN 1 AND 5),
+    student_ui_potential_usefulness_score INTEGER CHECK (student_ui_potential_usefulness_score IS NULL OR student_ui_potential_usefulness_score BETWEEN 1 AND 5),
+    student_ui_perceived_comprehensibility_score INTEGER CHECK (student_ui_perceived_comprehensibility_score IS NULL OR student_ui_perceived_comprehensibility_score BETWEEN 1 AND 5),
+    student_ui_age_context_fit_score INTEGER CHECK (student_ui_age_context_fit_score IS NULL OR student_ui_age_context_fit_score BETWEEN 1 AND 5),
+    student_ui_items_version TEXT,
     workload_score INTEGER NOT NULL CHECK (workload_score BETWEEN 0 AND 100),
     feedback TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`,
@@ -296,7 +302,7 @@ export function publicEvaluationInformation() {
   }
   // Approval records and researcher identity stay in the controlled study file.
   // They are deliberately not returned by the public API during double-blind review.
-  return { retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、教师决策支持和安全边界", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的多轮 AI 对话，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
+  return { retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、学生端只读原型、教师决策支持和安全边界", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的 AI 回应和本地安全接管结果，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
 }
 
 export async function startEvaluation(request: Request, input: {
@@ -614,14 +620,29 @@ export async function submitSurvey(request: Request, input: Record<string, unkno
   const now = new Date().toISOString();
   const workload = Number(input.workload);
   if (!Number.isInteger(workload) || workload < 0 || workload > 100) throw new ApiError(400, "工作负荷需为 0–100 的整数。");
+  const studentUiPresentationFidelity = likert(input.studentUiPresentationFidelity);
+  const studentUiPotentialUsefulness = likert(input.studentUiPotentialUsefulness);
+  const studentUiPerceivedComprehensibility = likert(input.studentUiPerceivedComprehensibility);
+  const studentUiAgeContextFit = likert(input.studentUiAgeContextFit);
   await db.prepare(`INSERT INTO evaluation_surveys
-    (participant_id,sus_json,trust_score,appropriateness_score,usability_score,safety_boundary_score,workload_score,feedback,created_at,updated_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(participant_id) DO UPDATE SET
+    (participant_id,sus_json,trust_score,appropriateness_score,usability_score,safety_boundary_score,
+      student_ui_presentation_fidelity_score,student_ui_potential_usefulness_score,
+      student_ui_perceived_comprehensibility_score,student_ui_age_context_fit_score,student_ui_items_version,
+      workload_score,feedback,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(participant_id) DO UPDATE SET
       sus_json=excluded.sus_json,trust_score=excluded.trust_score,
       appropriateness_score=excluded.appropriateness_score,usability_score=excluded.usability_score,
-      safety_boundary_score=excluded.safety_boundary_score,workload_score=excluded.workload_score,feedback=excluded.feedback,updated_at=excluded.updated_at`)
+      safety_boundary_score=excluded.safety_boundary_score,
+      student_ui_presentation_fidelity_score=excluded.student_ui_presentation_fidelity_score,
+      student_ui_potential_usefulness_score=excluded.student_ui_potential_usefulness_score,
+      student_ui_perceived_comprehensibility_score=excluded.student_ui_perceived_comprehensibility_score,
+      student_ui_age_context_fit_score=excluded.student_ui_age_context_fit_score,
+      student_ui_items_version=excluded.student_ui_items_version,
+      workload_score=excluded.workload_score,feedback=excluded.feedback,updated_at=excluded.updated_at`)
     .bind(participant.id, JSON.stringify(sus), likert(input.trust), likert(input.appropriateness),
-      likert(input.usability), likert(input.safetyBoundary), workload, boundedText(input.feedback, 500, false), now, now).run();
+      likert(input.usability), likert(input.safetyBoundary), studentUiPresentationFidelity,
+      studentUiPotentialUsefulness, studentUiPerceivedComprehensibility, studentUiAgeContextFit,
+      STUDENT_UI_ITEMS_VERSION, workload, boundedText(input.feedback, 500, false), now, now).run();
   await db.prepare("UPDATE evaluation_participants SET submitted_at=? WHERE id=?").bind(now, participant.id).run();
   return { submitted: true, participantCode: participant.participant_code };
 }
@@ -651,20 +672,63 @@ export function requireResearcher(request: Request): void {
   if (different !== 0) throw new ApiError(403, "研究者访问密钥无效。");
 }
 
-type AggregateRow = { role: EvaluatorRole; participants: number; completed: number; avg_time_ms: number | null; avg_trust: number | null; avg_appropriateness: number | null; avg_usability: number | null; avg_safety: number | null; avg_workload: number | null };
+type AggregateRow = {
+  role: EvaluatorRole; participants: number; completed: number; avg_time_ms: number | null;
+  avg_trust: number | null; avg_appropriateness: number | null; avg_usability: number | null;
+  avg_safety: number | null; avg_workload: number | null; student_ui_n: number;
+  avg_student_ui_presentation_fidelity: number | null;
+  avg_student_ui_potential_usefulness: number | null;
+  avg_student_ui_perceived_comprehensibility: number | null;
+  avg_student_ui_age_context_fit: number | null;
+};
+
+function numericOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 
 export async function researchSummary(request: Request) {
   requireResearcher(request);
   const db = await evaluationDatabase();
-  const rows = await db.prepare(`SELECT p.role, COUNT(DISTINCT p.id) participants,
-      COUNT(DISTINCT CASE WHEN p.submitted_at IS NOT NULL THEN p.id END) completed,
-      AVG(r.decision_time_ms) avg_time_ms, AVG(s.trust_score) avg_trust,
-      AVG(s.appropriateness_score) avg_appropriateness, AVG(s.usability_score) avg_usability,
-      AVG(s.safety_boundary_score) avg_safety, AVG(s.workload_score) avg_workload
-    FROM evaluation_participants p
-    LEFT JOIN evaluation_scenario_responses r ON r.participant_id=p.id
-    LEFT JOIN evaluation_surveys s ON s.participant_id=p.id
-    WHERE p.data_deleted_at IS NULL GROUP BY p.role`).all<AggregateRow>();
+  const rows = await db.prepare(`WITH current_version AS (
+      SELECT ? AS value
+    ), response_by_participant AS (
+      SELECT participant_id, AVG(decision_time_ms) avg_time_ms
+      FROM evaluation_scenario_responses GROUP BY participant_id
+    ), participant_metrics AS (
+      SELECT p.id,p.role,p.submitted_at,r.avg_time_ms,
+        s.trust_score,s.appropriateness_score,s.usability_score,s.safety_boundary_score,s.workload_score,
+        s.student_ui_presentation_fidelity_score,s.student_ui_potential_usefulness_score,
+        s.student_ui_perceived_comprehensibility_score,s.student_ui_age_context_fit_score,
+        s.student_ui_items_version
+      FROM evaluation_participants p
+      LEFT JOIN response_by_participant r ON r.participant_id=p.id
+      LEFT JOIN evaluation_surveys s ON s.participant_id=p.id
+      WHERE p.data_deleted_at IS NULL
+    ) SELECT role,COUNT(*) participants,
+      SUM(CASE WHEN submitted_at IS NOT NULL THEN 1 ELSE 0 END) completed,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN avg_time_ms END) avg_time_ms,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN trust_score END) avg_trust,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN appropriateness_score END) avg_appropriateness,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN usability_score END) avg_usability,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN safety_boundary_score END) avg_safety,
+      AVG(CASE WHEN submitted_at IS NOT NULL THEN workload_score END) avg_workload,
+      SUM(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
+        AND student_ui_presentation_fidelity_score IS NOT NULL
+        AND student_ui_potential_usefulness_score IS NOT NULL
+        AND student_ui_perceived_comprehensibility_score IS NOT NULL
+        AND student_ui_age_context_fit_score IS NOT NULL THEN 1 ELSE 0 END) student_ui_n,
+      AVG(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
+        THEN student_ui_presentation_fidelity_score END) avg_student_ui_presentation_fidelity,
+      AVG(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
+        THEN student_ui_potential_usefulness_score END) avg_student_ui_potential_usefulness,
+      AVG(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
+        THEN student_ui_perceived_comprehensibility_score END) avg_student_ui_perceived_comprehensibility,
+      AVG(CASE WHEN submitted_at IS NOT NULL AND student_ui_items_version=current_version.value
+        THEN student_ui_age_context_fit_score END) avg_student_ui_age_context_fit
+    FROM participant_metrics CROSS JOIN current_version GROUP BY role`)
+    .bind(STUDENT_UI_ITEMS_VERSION).all<AggregateRow>();
   const susRows = await db.prepare("SELECT participant_id,sus_json FROM evaluation_surveys").all<{ participant_id: string; sus_json: string }>();
   const susByParticipant = new Map(susRows.results.map((row) => {
     try { return [row.participant_id, calculateSus(JSON.parse(row.sus_json) as number[])] as const; }
@@ -679,7 +743,26 @@ export async function researchSummary(request: Request) {
   }
   const groups = rows.results.map((row) => {
     const sus = susByRole.get(row.role) ?? [];
-    return { ...row, participants: Number(row.participants), completed: Number(row.completed), avg_sus: sus.length ? sus.reduce((sum, value) => sum + value, 0) / sus.length : null };
+    const studentUiN = Number(row.student_ui_n ?? 0);
+    const studentUiVisible = studentUiN >= 5;
+    return {
+      role: row.role,
+      participants: Number(row.participants),
+      completed: Number(row.completed),
+      avg_time_ms: numericOrNull(row.avg_time_ms),
+      avg_trust: numericOrNull(row.avg_trust),
+      avg_appropriateness: numericOrNull(row.avg_appropriateness),
+      avg_usability: numericOrNull(row.avg_usability),
+      avg_safety: numericOrNull(row.avg_safety),
+      avg_workload: numericOrNull(row.avg_workload),
+      avg_sus: sus.length ? sus.reduce((sum, value) => sum + value, 0) / sus.length : null,
+      student_ui_n: studentUiVisible ? studentUiN : null,
+      student_ui_suppressed: !studentUiVisible,
+      avg_student_ui_presentation_fidelity: studentUiVisible ? numericOrNull(row.avg_student_ui_presentation_fidelity) : null,
+      avg_student_ui_potential_usefulness: studentUiVisible ? numericOrNull(row.avg_student_ui_potential_usefulness) : null,
+      avg_student_ui_perceived_comprehensibility: studentUiVisible ? numericOrNull(row.avg_student_ui_perceived_comprehensibility) : null,
+      avg_student_ui_age_context_fit: studentUiVisible ? numericOrNull(row.avg_student_ui_age_context_fit) : null,
+    };
   });
   const participantCount = groups.reduce((sum, row) => sum + row.participants, 0);
   return {
@@ -691,7 +774,8 @@ export async function researchSummary(request: Request) {
     suppressedGroups: groups.filter((row) => row.completed < 5).map((row) => row.role),
     versions: { scenarioPack: SCENARIO_PACK_VERSION, output: FROZEN_OUTPUT_VERSION,
       prompt: PROMPT_VERSION, dialoguePack: DIALOGUE_PACK_VERSION,
-      dialoguePrompt: DIALOGUE_PROMPT_VERSION, dialogueCases: DIALOGUE_EVALUATION_CASE_IDS },
+      dialoguePrompt: DIALOGUE_PROMPT_VERSION, dialogueCases: DIALOGUE_EVALUATION_CASE_IDS,
+      studentUiItems: STUDENT_UI_ITEMS_VERSION },
   };
 }
 
@@ -716,7 +800,10 @@ export async function researchCsv(request: Request): Promise<string> {
       d.safety_ended dialogue_safety_ended,d.rating_json dialogue_rating_json,
       d.must_revise dialogue_must_revise,d.harm_flags_json dialogue_harm_flags_json,
       d.started_at dialogue_started_at,d.completed_at dialogue_completed_at,d.rated_at dialogue_rated_at,
-      s.sus_json,s.trust_score,s.appropriateness_score,s.usability_score,s.safety_boundary_score,s.workload_score,s.feedback
+      s.sus_json,s.trust_score,s.appropriateness_score,s.usability_score,s.safety_boundary_score,
+      s.student_ui_presentation_fidelity_score,s.student_ui_potential_usefulness_score,
+      s.student_ui_perceived_comprehensibility_score,s.student_ui_age_context_fit_score,s.student_ui_items_version,
+      s.workload_score,s.feedback
     FROM evaluation_participants p
     LEFT JOIN (
       SELECT participant_id,scenario_id FROM evaluation_scenario_responses
@@ -728,6 +815,6 @@ export async function researchCsv(request: Request): Promise<string> {
     LEFT JOIN evaluation_dialogues d ON d.participant_id=p.id AND d.scenario_id=cases.scenario_id
     LEFT JOIN evaluation_surveys s ON s.participant_id=p.id
     WHERE p.data_deleted_at IS NULL ORDER BY p.participant_code,COALESCE(r.scenario_id,er.scenario_id,d.scenario_id)`).all<Record<string, unknown>>();
-  const headers = ["participant_code","role","experience_band","sequence_group","consent_version","quote_consent","scenario_pack_version","output_version","prompt_version","started_at","submitted_at","scenario_id","study_condition","chosen_action","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","decision_time_ms","updated_at","reference_action","reference_evidence_json","reference_context_judgment","reference_reason_codes_json","reference_privacy_choice","reference_confidence","frozen_at","dialogue_pack_version","dialogue_prompt_version","dialogue_model_id","dialogue_status","dialogue_next_turn","dialogue_transcript_json","dialogue_provider_metadata_json","dialogue_total_latency_ms","dialogue_safety_ended","dialogue_rating_json","dialogue_must_revise","dialogue_harm_flags_json","dialogue_started_at","dialogue_completed_at","dialogue_rated_at","sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score","workload_score","feedback"];
+  const headers = ["participant_code","role","experience_band","sequence_group","consent_version","quote_consent","scenario_pack_version","output_version","prompt_version","started_at","submitted_at","scenario_id","study_condition","chosen_action","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","decision_time_ms","updated_at","reference_action","reference_evidence_json","reference_context_judgment","reference_reason_codes_json","reference_privacy_choice","reference_confidence","frozen_at","dialogue_pack_version","dialogue_prompt_version","dialogue_model_id","dialogue_status","dialogue_next_turn","dialogue_transcript_json","dialogue_provider_metadata_json","dialogue_total_latency_ms","dialogue_safety_ended","dialogue_rating_json","dialogue_must_revise","dialogue_harm_flags_json","dialogue_started_at","dialogue_completed_at","dialogue_rated_at","sus_json","trust_score","appropriateness_score","usability_score","safety_boundary_score","student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score","student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version","workload_score","feedback"];
   return `\uFEFF${headers.join(",")}\n${rows.results.map((row) => headers.map((key) => csvCell(row[key])).join(",")).join("\n")}`;
 }

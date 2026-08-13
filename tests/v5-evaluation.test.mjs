@@ -63,7 +63,12 @@ function consent(accessCode, overrides = {}) {
 }
 
 function survey(workload = 37) {
-  return { kind: "survey", sus: [5,1,5,1,5,1,5,1,5,1], trust: 4, appropriateness: 4, usability: 5, safetyBoundary: 5, workload, feedback: "匿名的原型改进建议。" };
+  return {
+    kind: "survey", sus: [5,1,5,1,5,1,5,1,5,1], trust: 4, appropriateness: 4,
+    usability: 5, safetyBoundary: 5, studentUiPresentationFidelity: 5,
+    studentUiPotentialUsefulness: 4, studentUiPerceivedComprehensibility: 4,
+    studentUiAgeContextFit: 5, workload, feedback: "匿名的原型改进建议。",
+  };
 }
 
 async function start(code, bindings, overrides = {}) {
@@ -130,7 +135,8 @@ test("four consents, code-derived role, one-time code, 12 synthetic scenarios, a
     "public study information must not disclose double-blind approval identifiers");
   const rendered = await readFile(new URL("../app/evaluate/EvaluationApp.tsx", import.meta.url), "utf8");
   assert.match(rendered, /查看完整参与说明/u);
-  assert.match(rendered, /实际 Qwen 对话全文及模型\/提示版本/u);
+  assert.match(rendered, /实际生成的 AI 回应和本地安全接管结果/u);
+  assert.match(rendered, /5<\/strong> 段正式多轮对话（C08 本地安全接管）/u);
   assert.match(rendered, /邀请消息中的联系渠道/u);
   assert.match(rendered, /随机编号去标识保存/u);
   assert.match(rendered, /syntheticOnlyConfirmed[^<]*" required \/><span>我理解全部案例均为合成情境/u);
@@ -157,6 +163,10 @@ test("teacher dashboard-only and CCCR persist identical structured fields with n
   const forbiddenText = await callApi("/api/evaluation/response", mutation({ scenarioId: "C01", ...decision, rationale: "自由文本不应进入正式案例。" }, cookie), bindings);
   assert.equal(forbiddenText.status, 400);
   await completeTeacherCases(cookie, bindings);
+  const missingStudentUi = survey(41);
+  delete missingStudentUi.studentUiPerceivedComprehensibility;
+  const rejectedSurvey = await callApi("/api/evaluation/response", mutation(missingStudentUi, cookie), bindings);
+  assert.equal(rejectedSurvey.status, 400, "all four student-UI formative items are required for new submissions");
   const rows = await db.prepare("SELECT * FROM evaluation_scenario_responses ORDER BY scenario_id").all();
   assert.equal(rows.results.length, 12);
   assert.deepEqual(new Set(rows.results.map((row) => row.study_condition)), new Set(["dashboard_only", "dashboard_cccr"]));
@@ -170,7 +180,28 @@ test("teacher dashboard-only and CCCR persist identical structured fields with n
   assert.ok(!columns.includes("context_check") && !columns.includes("rationale"));
   const submitted = await callApi("/api/evaluation/response", mutation(survey(41), cookie), bindings);
   assert.equal(submitted.status, 200, await submitted.clone().text());
-  assert.equal((await db.prepare("SELECT workload_score FROM evaluation_surveys").first()).workload_score, 41);
+  const storedSurvey = await db.prepare("SELECT * FROM evaluation_surveys").first();
+  assert.equal(storedSurvey.workload_score, 41);
+  assert.equal(storedSurvey.student_ui_presentation_fidelity_score, 5);
+  assert.equal(storedSurvey.student_ui_potential_usefulness_score, 4);
+  assert.equal(storedSurvey.student_ui_perceived_comprehensibility_score, 4);
+  assert.equal(storedSurvey.student_ui_age_context_fit_score, 5);
+  assert.equal(storedSurvey.student_ui_items_version, "student-ui-formative-4-v1");
+});
+
+test("student-UI formative items reject zero, six, and fractional scores", async (t) => {
+  const { mf, db } = await newD1(); t.after(() => mf.dispose());
+  const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: "TEACHER-CODE-UI-RANGE" };
+  installQwenStub(t);
+  const cookie = await start("TEACHER-CODE-UI-RANGE", bindings);
+  await completeTeacherCases(cookie, bindings);
+  for (const invalid of [0, 6, 2.5]) {
+    const payload = survey();
+    payload.studentUiPresentationFidelity = invalid;
+    const response = await callApi("/api/evaluation/response", mutation(payload, cookie), bindings);
+    assert.equal(response.status, 400, `student UI score ${invalid} must be rejected`);
+  }
+  assert.equal((await db.prepare("SELECT COUNT(*) count FROM evaluation_surveys").first()).count, 0);
 });
 
 test("expert freezes complete independent judgment before reveal, then stores seven quality dimensions and fixed harms", async (t) => {
@@ -225,8 +256,59 @@ test("research suppresses n<5 and CSV exports workload, quote, structured teache
   const exported = await callApi("/api/research/export", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
   assert.equal(exported.headers.get("cache-control"), "no-store");
   const csv = await exported.text(); const header = csv.replace(/^\uFEFF/u, "").split(/\r?\n/u, 1)[0];
-  for (const field of ["quote_consent","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","reference_evidence_json","reference_confidence","dialogue_transcript_json","dialogue_rating_json","dialogue_model_id","dialogue_total_latency_ms","workload_score"]) assert.match(header, new RegExp(`(?:^|,)${field}(?:,|$)`, "u"));
+  for (const field of ["quote_consent","evidence_selected_json","context_judgment","reason_codes_json","privacy_choice","confidence","quality_json","must_revise","critical_harm_flags_json","reference_evidence_json","reference_confidence","dialogue_transcript_json","dialogue_rating_json","dialogue_model_id","dialogue_total_latency_ms","student_ui_presentation_fidelity_score","student_ui_potential_usefulness_score","student_ui_perceived_comprehensibility_score","student_ui_age_context_fit_score","student_ui_items_version","workload_score"]) assert.match(header, new RegExp(`(?:^|,)${field}(?:,|$)`, "u"));
   assert.doesNotMatch(header, /context_check|rationale|output_rating/u);
+});
+
+test("student-UI aggregates are participant-level and stay suppressed until five complete item sets", async (t) => {
+  const { mf, db } = await newD1(); t.after(() => mf.dispose());
+  const bindings = { DB: db, RESEARCH_ACCESS_KEY: RESEARCH_KEY };
+  const initialize = await callApi("/api/research/summary", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
+  assert.equal(initialize.status, 200);
+  const now = new Date().toISOString();
+  for (let index = 1; index <= 5; index += 1) {
+    const participantId = `summary-teacher-${index}`;
+    await db.prepare(`INSERT INTO evaluation_participants
+      (id,participant_code,role,experience_band,sequence_group,consent_version,quote_consent,
+       scenario_pack_version,output_version,prompt_version,access_code_hash,session_token_hash,
+       started_at,last_seen_at,submitted_at,withdrawn_at,data_deleted_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL)`)
+      .bind(participantId, `T-SUM${index}`, "teacher", "3-5", "A", "summary-test-v1", 0,
+        "scenario-test", "output-test", "prompt-test", `access-${index}`, `session-${index}`,
+        now, now, now).run();
+    const hasStudentUi = index <= 4;
+    await db.prepare(`INSERT INTO evaluation_surveys
+      (participant_id,sus_json,trust_score,appropriateness_score,usability_score,safety_boundary_score,
+       student_ui_presentation_fidelity_score,student_ui_potential_usefulness_score,
+       student_ui_perceived_comprehensibility_score,student_ui_age_context_fit_score,student_ui_items_version,
+       workload_score,feedback,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(participantId, JSON.stringify([5,1,5,1,5,1,5,1,5,1]), index, 4, 4, 5,
+        hasStudentUi ? index : null, hasStudentUi ? 4 : null, hasStudentUi ? 3 : null,
+        hasStudentUi ? 5 : null, hasStudentUi ? "student-ui-formative-4-v1" : null,
+        20 + index, "", now, now).run();
+  }
+  const suppressedResponse = await callApi("/api/research/summary", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
+  assert.equal(suppressedResponse.status, 200);
+  const suppressed = await suppressedResponse.json();
+  assert.equal(suppressed.groups.length, 1);
+  assert.equal(suppressed.groups[0].completed, 5);
+  assert.equal(suppressed.groups[0].student_ui_n, null);
+  assert.equal(suppressed.groups[0].student_ui_suppressed, true);
+  assert.equal(suppressed.groups[0].avg_student_ui_presentation_fidelity, null);
+  assert.equal(suppressed.groups[0].avg_trust, 3, "each participant contributes one survey value");
+
+  await db.prepare(`UPDATE evaluation_surveys SET
+    student_ui_presentation_fidelity_score=5,student_ui_potential_usefulness_score=4,
+    student_ui_perceived_comprehensibility_score=3,student_ui_age_context_fit_score=5,
+    student_ui_items_version='student-ui-formative-4-v1' WHERE participant_id='summary-teacher-5'`).run();
+  const visibleResponse = await callApi("/api/research/summary", { headers: { "x-research-key": RESEARCH_KEY } }, bindings);
+  assert.equal(visibleResponse.status, 200);
+  const visible = await visibleResponse.json();
+  assert.equal(visible.groups[0].student_ui_n, 5);
+  assert.equal(visible.groups[0].student_ui_suppressed, false);
+  assert.equal(visible.groups[0].avg_student_ui_presentation_fidelity, 3);
+  assert.equal(visible.versions.studentUiItems, "student-ui-formative-4-v1");
 });
 
 test("formal dialogue starts during teacher case, rejects client text, preserves history, and C08 makes zero Qwen calls", async (t) => {
@@ -278,6 +360,8 @@ test("v5.4 dialogue writes reject a participant from the previous consent protoc
 test("evaluation UI keeps UTF-8 disclosures and has no formal-case free-text judgment controls", async () => {
   const source = await readFile(new URL("../app/evaluate/EvaluationApp.tsx", import.meta.url), "utf8");
   assert.match(source, /合成情境/u); assert.match(source, /禁止输入真实学生信息/u);
+  assert.match(source, /形成性自编代理条目，不是经验证量表，不代表真实学生体验、心理改善或实际操作易用性/u);
+  assert.match(source, /SUS 只评价你作为成年评估者完成本评估工具流程时的感知可用性/u);
   assert.doesNotMatch(source, /name="(?:contextCheck|rationale)"/u);
   assert.doesNotMatch(source, /鐨|鍙|绱/u);
 });
