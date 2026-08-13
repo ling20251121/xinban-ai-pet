@@ -294,7 +294,9 @@ export function publicEvaluationInformation() {
   if (researcher.length < 2 || contact.length < 5 || ethicsStatus.length < 2 || storage.length < 5 || !Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
     throw new ApiError(503, "成人评估研究说明尚未完整配置，暂不开放数据收集。");
   }
-  return { researcher, contact, ethicsStatus, retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、教师决策支持和安全边界", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的多轮 AI 对话，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
+  // Approval records and researcher identity stay in the controlled study file.
+  // They are deliberately not returned by the public API during double-blind review.
+  return { retentionDays, purpose: "评估心伴 AI-Pet 在固定合成学生情境中的多轮对话质量、情绪表达与梳理支持的适切性、教师决策支持和安全边界", duration: "约 30–45 分钟", compensation: "无报酬", risks: "需要查看并评价实际生成的多轮 AI 对话，可能产生疲劳，或因阅读危机类合成情境感到不适；可跳出页面或撤回", benefits: "不保证直接获益；反馈将用于改进研究原型", storage, withdrawalBoundary: "在研究团队执行不可逆匿名化或汇总前，可凭当前评估会话撤回并删除" };
 }
 
 export async function startEvaluation(request: Request, input: {

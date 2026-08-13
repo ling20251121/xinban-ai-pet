@@ -11,7 +11,7 @@ const RESEARCH_KEY = "research-test-key-at-least-24-characters";
 const STUDY_BINDINGS = {
   EVALUATION_RESEARCHER_NAME: "EITT adult prototype team",
   EVALUATION_CONTACT: "research@example.invalid",
-  EVALUATION_ETHICS_STATUS: "Protocol pending; formative prototype feedback only",
+  EVALUATION_ETHICS_STATUS: "Approved adult synthetic-scenario evaluation; identifying details withheld for double-blind review",
   EVALUATION_RETENTION_DAYS: "365",
   EVALUATION_DATA_HOST: "Protected synthetic-evaluation database in a test region",
   QWEN_API_KEY: "test-qwen-key",
@@ -120,7 +120,20 @@ test("four consents, code-derived role, one-time code, 12 synthetic scenarios, a
   const bindings = { DB: db, ...STUDY_BINDINGS, EVALUATION_TEACHER_CODES: teacherCode, EVALUATION_EXPERT_CODES: "EXPERT-CODE-0001", RESEARCH_ACCESS_KEY: RESEARCH_KEY };
 
   const info = await callApi("/api/evaluation/info", {}, bindings);
-  assert.equal(info.status, 200); assert.match(await info.text(), /30–45 分钟/u);
+  assert.equal(info.status, 200);
+  const infoBody = await info.json();
+  assert.match(infoBody.duration, /30–45 分钟/u);
+  assert.equal(infoBody.researcher, undefined);
+  assert.equal(infoBody.contact, undefined);
+  assert.equal(infoBody.ethicsStatus, undefined);
+  assert.doesNotMatch(JSON.stringify(infoBody), /机构|编号|institution|approval number/iu,
+    "public study information must not disclose double-blind approval identifiers");
+  const rendered = await readFile(new URL("../app/evaluate/EvaluationApp.tsx", import.meta.url), "utf8");
+  assert.match(rendered, /查看完整参与说明/u);
+  assert.match(rendered, /实际 Qwen 对话全文及模型\/提示版本/u);
+  assert.match(rendered, /邀请消息中的联系渠道/u);
+  assert.match(rendered, /随机编号去标识保存/u);
+  assert.doesNotMatch(rendered, /当前仅作系统测试|不作为论文实证结果|伦理状态|审批材料|审批机构|审批编号|研究者身份/u);
   const missing = await callApi("/api/evaluation/session", mutation(consent(teacherCode, { dataUseConfirmed: false })), bindings);
   assert.equal(missing.status, 400);
   const roleSpoof = await callApi("/api/evaluation/session", mutation(consent(teacherCode, { role: "expert" })), bindings);

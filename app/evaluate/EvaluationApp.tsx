@@ -25,7 +25,7 @@ type DialogueSession = {
   model?: string; maxTurns: number;
 };
 type StudyInfo = {
-  researcher: string; contact: string; ethicsStatus: string; retentionDays: number;
+  retentionDays: number;
   purpose: string; duration: string; compensation: string; risks: string; benefits: string;
   storage: string; withdrawalBoundary: string;
 };
@@ -279,7 +279,55 @@ export default function EvaluationApp() {
   }
 
   if (state === undefined || info === undefined) return <main className="eval-shell"><section className="eval-card"><h1>成人合成情境评估</h1><p>正在读取研究说明。本页只展示固定<strong>合成情境</strong>，<strong>禁止输入真实学生信息</strong>。</p></section></main>;
-  if (!state) return <main className="eval-shell"><section className="eval-hero"><div className="eval-pet">🐶</div><p className="eyebrow">EITT 成人原型评估</p><h1>用专业判断，帮助心伴变得更可靠</h1><p>仅邀请成年教师与专家；全部学生、学校、表达和趋势都是固定的<strong>合成情境</strong>。</p></section><section className="eval-card consent-card"><h2>研究说明与知情同意</h2>{info ? <><dl className="study-info"><div><dt>目的</dt><dd>{info.purpose}</dd></div><div><dt>预计用时</dt><dd>{info.duration}</dd></div><div><dt>风险</dt><dd>{info.risks}</dd></div><div><dt>收益与补偿</dt><dd>{info.benefits}；{info.compensation}</dd></div><div><dt>存储与保存期</dt><dd>{info.storage}；最多 {info.retentionDays} 天</dd></div><div><dt>撤回边界</dt><dd>{info.withdrawalBoundary}</dd></div><div><dt>研究者与联系</dt><dd>{info.researcher}；{info.contact}</dd></div><div><dt>伦理状态</dt><dd>{info.ethicsStatus}</dd></div></dl>{/pending|待审|未批准|审批中/iu.test(info.ethicsStatus) && <p className="ethics-warning">当前仅作系统测试，不作为论文实证结果。</p>}<form onSubmit={enter} className="eval-form"><label>相关工作经验<select name="experienceBand" required><option value="0-2">0–2 年</option><option value="3-5">3–5 年</option><option value="6-10">6–10 年</option><option value="11+">11 年以上</option></select></label><label>教师/专家一次性访问码（角色由码决定）<input name="accessCode" autoComplete="one-time-code" maxLength={80} required /></label><label className="check"><input type="checkbox" name="adultConfirmed" required />我确认已满 18 周岁。</label><label className="check"><input type="checkbox" name="syntheticOnlyConfirmed" required />我理解全部案例均为合成情境，并承诺<strong>禁止输入真实学生信息</strong>。</label><label className="check"><input type="checkbox" name="dataUseConfirmed" required />我理解系统将保存固定合成学生脚本、实际 Qwen 多轮回应、模型与提示版本、我的案例决策、对话评分、用时、量表和可选反馈，用于匿名研究汇总。</label><label className="check"><input type="checkbox" name="voluntaryConfirmed" required />我自愿参加，拒绝或撤回不会受到不利影响。</label><label className="check optional"><input type="checkbox" name="quoteConsent" />可选：我允许研究者逐字引用我的可选反馈（拒绝不影响参与）。</label><button type="submit">同意并进入评估</button></form></> : <p className="error">{error || "研究说明未完整配置，当前不能收集数据。"}</p>}</section></main>;
+  if (!state) return <main className="eval-shell">
+    <section className="eval-hero">
+      <div className="eval-pet" aria-hidden="true">🐶</div>
+      <p className="eyebrow">EITT 教师与专家评估</p>
+      <h1>体验真实对话，给出专业判断</h1>
+      <p>评价心伴 AI-Pet 的对话质量、学生界面与教师决策支持。所有学生、学校和事件均为固定<strong>合成情境</strong>。</p>
+      <div className="task-facts" aria-label="评估任务概览">
+        <span><strong>12</strong> 个合成案例</span>
+        <span><strong>5</strong> 段 Qwen 多轮对话</span>
+        <span><strong>30–45</strong> 分钟</span>
+      </div>
+    </section>
+    <section className="eval-card consent-card">
+      <div className="entry-heading">
+        <div><p className="dialogue-kicker">开始评估</p><h2>输入一次性访问码</h2></div>
+        <p>角色由访问码自动识别。回答以随机编号去标识保存，可在提交前后按页面提示撤回。</p>
+      </div>
+      {info ? <>
+        <details className="study-details">
+          <summary>查看完整参与说明</summary>
+          <div className="study-details-body">
+            <dl className="study-info">
+              <div><dt>目的</dt><dd>{info.purpose}</dd></div>
+              <div><dt>预计用时</dt><dd>{info.duration}</dd></div>
+              <div><dt>可能不适</dt><dd>{info.risks}</dd></div>
+              <div><dt>收益与补偿</dt><dd>{info.benefits}；{info.compensation}</dd></div>
+              <div><dt>数据与保存</dt><dd>{info.storage}；最多 {info.retentionDays} 天</dd></div>
+              <div><dt>撤回</dt><dd>{info.withdrawalBoundary}</dd></div>
+              <div><dt>问题与投诉</dt><dd>请使用邀请消息中的联系渠道。</dd></div>
+            </dl>
+          </div>
+        </details>
+        <form onSubmit={enter} className="eval-form">
+          <div className="entry-grid">
+            <label>相关工作经验<select name="experienceBand" required><option value="0-2">0–2 年</option><option value="3-5">3–5 年</option><option value="6-10">6–10 年</option><option value="11+">11 年以上</option></select></label>
+            <label>教师/专家一次性访问码<input name="accessCode" autoComplete="one-time-code" maxLength={80} required /></label>
+          </div>
+          <div className="consent-checks" aria-label="参与确认">
+            <label className="check"><input type="checkbox" name="adultConfirmed" required />我确认已满 18 周岁。</label>
+            <label className="check"><input type="checkbox" name="syntheticOnlyConfirmed" required />我理解全部案例均为合成情境，并承诺<strong>不输入真实学生信息</strong>。</label>
+            <label className="check"><input type="checkbox" name="dataUseConfirmed" required />我同意将案例判断、实际 Qwen 对话全文及模型/提示版本、评分、用时、量表和可选反馈用于去标识研究汇总。</label>
+            <label className="check"><input type="checkbox" name="voluntaryConfirmed" required />我自愿参加，并理解可以按页面说明退出或撤回。</label>
+          </div>
+          <label className="check optional"><input type="checkbox" name="quoteConsent" />可选：允许研究者在去标识后逐字引用我的文字反馈（拒绝不影响参与）。</label>
+          <button type="submit">进入评估</button>
+        </form>
+      </> : <p className="error">{error || "参与说明尚未完整配置，当前不能进入。"}</p>}
+    </section>
+  </main>;
 
   const completed = state.scenarios.filter((item) => item.completed).length;
   if (completed === 12 && !state.participant.submitted) return <main className="eval-shell"><header className="study-head"><div><p className="eyebrow">匿名编号 {state.participant.code}</p><h1>12 个合成案例已完成</h1></div><button className="danger" onClick={withdraw}>撤回并删除</button></header><section className="eval-card"><h2>最后的使用体验问卷</h2><form onSubmit={submitSurvey} className="survey"><fieldset><legend>SUS 系统可用性量表</legend>{SUS.map((question, index) => <label key={question}>{index + 1}. {question}<select name={`sus${index}`} required defaultValue=""><option value="" disabled>请选择 1–5</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><fieldset><legend>总体评价（1=非常不同意，5=非常同意）</legend>{[["trust","我能适度信任系统而不会盲从。"],["appropriateness","建议行动符合中国学校情境且适度。"],["usability","教师/专家界面清晰且可用。"],["safetyBoundary","系统清楚守住安全、隐私与人工决策边界。"]].map(([name, question]) => <label key={name}>{question}<select name={name} required defaultValue=""><option value="" disabled>请选择</option>{[1,2,3,4,5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</fieldset><label>完成全部任务时的工作负荷（0=几乎没有，100=非常高）<input name="workload" type="number" min="0" max="100" step="1" required /></label><label>可选反馈（禁止填写真实个人或学校信息）<textarea name="feedback" maxLength={500} /></label><button type="submit">提交匿名评估</button></form>{notice && <p className="success">{notice}</p>}{error && <p role="alert" className="error">{error}</p>}</section></main>;
